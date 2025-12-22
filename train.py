@@ -69,7 +69,7 @@ class SimpleTrainer2d:
         self.gaussian_model.train()
         start_time = time.time()
         for iter in range(1, self.iterations+1):
-            loss, psnr = self.gaussian_model.train_iter(self.gt_image)
+            loss, psnr = self.gaussian_model.train_iter(self.gt_image, iter)
             psnr_list.append(psnr)
             iter_list.append(iter)
             with torch.no_grad():
@@ -78,6 +78,9 @@ class SimpleTrainer2d:
                     progress_bar.update(10)
         end_time = time.time() - start_time
         progress_bar.close()
+        if hasattr(self.gaussian_model, 'prune_points'):
+            print("Pruning points...")
+            self.gaussian_model.prune_points(threshold=0.5)
         psnr_value, ms_ssim_value = self.test()
         with torch.no_grad():
             self.gaussian_model.eval()

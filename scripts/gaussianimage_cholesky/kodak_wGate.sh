@@ -11,5 +11,5 @@ fi
 for num_points in 393216 # 768x512
 do
 CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
---data_name kodak --model_name GaussianImage_Cholesky --num_points $num_points --iterations 50000 --save_imgs
+--data_name kodak --model_name GaussianImage_Cholesky_wGate --num_points $num_points --iterations 50000 --save_imgs --start_gate_training 0 --stop_gate_training 50000
 done
