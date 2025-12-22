@@ -24,6 +24,8 @@ class SimpleTrainer2d:
         iterations:int = 30000,
         model_path = None,
         args = None,
+        start_gate_training: int = 0,
+        stop_gate_training: int = 50000,
     ):
         self.device = torch.device("cuda:0")
         self.gt_image = image_path_to_tensor(image_path).to(self.device)
@@ -40,7 +42,7 @@ class SimpleTrainer2d:
         if model_name == "GaussianImage_Cholesky":
             from gaussianimage_cholesky import GaussianImage_Cholesky
             self.gaussian_model = GaussianImage_Cholesky(loss_type="L2", opt_type="adan", num_points=self.num_points, H=self.H, W=self.W, BLOCK_H=BLOCK_H, BLOCK_W=BLOCK_W, 
-                device=self.device, lr=args.lr, quantize=False).to(self.device)
+                device=self.device, lr=args.lr, quantize=False, start_gate_training=start_gate_training, stop_gate_training=stop_gate_training).to(self.device)
 
         elif model_name == "GaussianImage_RS":
             from gaussianimage_rs import GaussianImage_RS
