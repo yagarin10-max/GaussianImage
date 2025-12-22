@@ -148,6 +148,12 @@ def parse_args(argv):
         default=1e-3,
         help="Learning rate (default: %(default)s)",
     )
+    parser.add_argument(
+        "--start_gate_training", type=int, default=0, help="Iteration to start soft gate training"
+    )
+    parser.add_argument(
+        "--stop_gate_training", type=int, default=50000, help="Iteration to stop soft gate training and switch to hard gate"
+    )
     args = parser.parse_args(argv)
     return args
 
@@ -178,7 +184,8 @@ def main(argv):
             image_path = Path(args.dataset) /  f'{i+1:04}x2.png'
 
         trainer = SimpleTrainer2d(image_path=image_path, num_points=args.num_points, 
-            iterations=args.iterations, model_name=args.model_name, args=args, model_path=args.model_path)
+            iterations=args.iterations, model_name=args.model_name, args=args, model_path=args.model_path, 
+            start_gate_training=args.start_gate_training, stop_gate_training=args.stop_gate_training)
         psnr, ms_ssim, training_time, eval_time, eval_fps = trainer.train()
         psnrs.append(psnr)
         ms_ssims.append(ms_ssim)
