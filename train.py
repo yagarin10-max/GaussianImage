@@ -13,6 +13,7 @@ from utils import *
 from tqdm import tqdm
 import random
 import torchvision.transforms as transforms
+import wandb
 
 class SimpleTrainer2d:
     """Trains random 2d gaussians to fit an image."""
@@ -26,6 +27,9 @@ class SimpleTrainer2d:
         args = None,
         start_gate_training: int = 0,
         stop_gate_training: int = 50000,
+        use_wandb: bool = False,
+        wandb_project: str = "GaussianImage",
+        wandb_entity: str = None,
     ):
         self.device = torch.device("cuda:0")
         self.gt_image = image_path_to_tensor(image_path).to(self.device)
@@ -38,7 +42,22 @@ class SimpleTrainer2d:
         self.iterations = iterations
         self.save_imgs = args.save_imgs
         self.log_dir = Path(f"./checkpoints/{args.data_name}/{model_name}_{args.iterations}_{num_points}/{self.image_name}")
-        
+        self.use_wandb = use_wandb
+        if self.use_wandb:
+            wandb.init(
+                project=wandb_project,
+                entity=wandb_entity,
+                name=f"{self.image_name}_{model_name}_{iterations}_{num_points}",
+                config={
+                    "model": model_name,
+                    "image": self.image_name,
+                    "iterations": iterations,
+                    "num_points": num_points,
+                    "lr": args.lr,
+                    "start_gate": start_gate_training,
+                    "stop_gate": stop_gate_training,
+                },
+            )
         if model_name == "GaussianImage_Cholesky_wGate":
             from gaussianimage_cholesky_wGate import GaussianImage_Cholesky
             self.gaussian_model = GaussianImage_Cholesky(loss_type="L2", opt_type="adan", num_points=self.num_points, H=self.H, W=self.W, BLOCK_H=BLOCK_H, BLOCK_W=BLOCK_W, 
@@ -70,7 +89,7 @@ class SimpleTrainer2d:
             self.gaussian_model.load_state_dict(model_dict)
 
     def train(self):     
-        psnr_list, iter_list = [], []
+        psnr_list, iter_list, loss_list = [], [], []
         progress_bar = tqdm(range(1, self.iterations+1), desc="Training progress")
         best_psnr = 0
         self.gaussian_model.train()
@@ -79,6 +98,33 @@ class SimpleTrainer2d:
             loss, psnr = self.gaussian_model.train_iter(self.gt_image, iter)
             psnr_list.append(psnr)
             iter_list.append(iter)
+            loss_list.append(loss.item())
+
+            if self.use_wandb and iter % 100 == 0:
+                log_data = {
+                    "train/loss": loss.item(),
+                    "train/psnr": psnr,
+                    "iter": iter,
+                }
+                if hasattr(self.gaussian_model, "_mask_logits"):
+                    with torch.no_grad():
+                        sparsity = torch.sigmoid(self.gaussian_model._mask_logits).mean().item()
+                        log_data["train/sparsity"] = sparsity
+                wandb.log(log_data)
+            
+            if self.use_wandb and (iter % 5000 == 0):
+                with torch.no_grad():
+                    gate_threshold = getattr(self.gaussian_model, "start_gate_training", float('inf'))
+                    pruning_mode = "hard" if iter > gate_threshold else None
+                    render_pkg = self.gaussian_model.forward(pruning_mode=pruning_mode)
+                    img_tensor = render_pkg["render"].clamp(0, 1)
+                    img_np = img_tensor.squeeze(0).permute(1, 2, 0).cpu().numpy()
+
+                    wandb.log({
+                        "render_image": [wandb.Image(img_np, caption=f"Iter {iter}")],
+                        "iter": iter,
+                    }
+                    )
             with torch.no_grad():
                 if iter % 10 == 0:
                     progress_bar.set_postfix({f"Loss":f"{loss.item():.{7}f}", "PSNR":f"{psnr:.{4}f},"})
@@ -88,6 +134,10 @@ class SimpleTrainer2d:
         if hasattr(self.gaussian_model, 'prune_points'):
             print("Pruning points...")
             self.gaussian_model.prune_points(threshold=0.5)
+        
+        if self.use_wandb:
+            wandb.finish()
+
         psnr_value, ms_ssim_value = self.test()
         with torch.no_grad():
             self.gaussian_model.eval()
@@ -161,6 +211,8 @@ def parse_args(argv):
     parser.add_argument(
         "--stop_gate_training", type=int, default=50000, help="Iteration to stop soft gate training and switch to hard gate"
     )
+    parser.add_argument("--use_wandb", action="store_true", help="Use wandb for logging")
+    parser.add_argument("--wandb_project", type=str, default="GaussianImage", help="Wandb project name")
     args = parser.parse_args(argv)
     return args
 
@@ -182,17 +234,19 @@ def main(argv):
     image_h, image_w = 0, 0
     if args.data_name == "kodak":
         image_length, start = 24, 0
+    elif args.data_name == "kodak_small":
+        image_length, start = 3, 0
     elif args.data_name == "DIV2K_valid_LRX2":
         image_length, start = 100, 800
     for i in range(start, start+image_length):
-        if args.data_name == "kodak":
+        if (args.data_name == "kodak") or (args.data_name == "kodak_small"):
             image_path = Path(args.dataset) / f'kodim{i+1:02}.png'
         elif args.data_name == "DIV2K_valid_LRX2":
             image_path = Path(args.dataset) /  f'{i+1:04}x2.png'
 
         trainer = SimpleTrainer2d(image_path=image_path, num_points=args.num_points, 
             iterations=args.iterations, model_name=args.model_name, args=args, model_path=args.model_path, 
-            start_gate_training=args.start_gate_training, stop_gate_training=args.stop_gate_training)
+            start_gate_training=args.start_gate_training, stop_gate_training=args.stop_gate_training, use_wandb=args.use_wandb, wandb_project=args.wandb_project)
         psnr, ms_ssim, training_time, eval_time, eval_fps = trainer.train()
         psnrs.append(psnr)
         ms_ssims.append(ms_ssim)
