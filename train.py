@@ -25,8 +25,8 @@ class SimpleTrainer2d:
         iterations:int = 30000,
         model_path = None,
         args = None,
-        start_gate_training: int = 0,
-        stop_gate_training: int = 50000,
+        start_mask_training: int = 0,
+        stop_mask_training: int = 50000,
         use_wandb: bool = False,
         wandb_project: str = "GaussianImage",
         wandb_entity: str = None,
@@ -54,14 +54,14 @@ class SimpleTrainer2d:
                     "iterations": iterations,
                     "num_points": num_points,
                     "lr": args.lr,
-                    "start_gate": start_gate_training,
-                    "stop_gate": stop_gate_training,
+                    "start_mask": start_mask_training,
+                    "stop_mask": stop_mask_training,
                 },
             )
-        if model_name == "GaussianImage_Cholesky_wGate":
-            from gaussianimage_cholesky_wGate import GaussianImage_Cholesky
+        if model_name == "GaussianImage_Cholesky_wMask":
+            from gaussianimage_cholesky_wMask import GaussianImage_Cholesky
             self.gaussian_model = GaussianImage_Cholesky(loss_type="L2", opt_type="adan", num_points=self.num_points, H=self.H, W=self.W, BLOCK_H=BLOCK_H, BLOCK_W=BLOCK_W, 
-                device=self.device, lr=args.lr, quantize=False, start_gate_training=start_gate_training, stop_gate_training=stop_gate_training).to(self.device)
+                device=self.device, lr=args.lr, quantize=False, start_mask_training=start_mask_training, stop_mask_training=stop_mask_training).to(self.device)
         
         elif model_name == "GaussianImage_Cholesky":
             from gaussianimage_cholesky import GaussianImage_Cholesky
@@ -114,8 +114,8 @@ class SimpleTrainer2d:
             
             if self.use_wandb and (iter % 5000 == 0):
                 with torch.no_grad():
-                    gate_threshold = getattr(self.gaussian_model, "start_gate_training", float('inf'))
-                    pruning_mode = "hard" if iter > gate_threshold else None
+                    mask_threshold = getattr(self.gaussian_model, "start_mask_training", float('inf'))
+                    pruning_mode = "hard" if iter > mask_threshold else None
                     render_pkg = self.gaussian_model.forward(pruning_mode=pruning_mode)
                     img_tensor = render_pkg["render"].clamp(0, 1)
                     img_np = img_tensor.squeeze(0).permute(1, 2, 0).cpu().numpy()
@@ -206,10 +206,10 @@ def parse_args(argv):
         help="Learning rate (default: %(default)s)",
     )
     parser.add_argument(
-        "--start_gate_training", type=int, default=0, help="Iteration to start soft gate training"
+        "--start_mask_training", type=int, default=0, help="Iteration to start soft mask training"
     )
     parser.add_argument(
-        "--stop_gate_training", type=int, default=50000, help="Iteration to stop soft gate training and switch to hard gate"
+        "--stop_mask_training", type=int, default=50000, help="Iteration to stop soft mask training and switch to hard mask"
     )
     parser.add_argument("--use_wandb", action="store_true", help="Use wandb for logging")
     parser.add_argument("--wandb_project", type=str, default="GaussianImage", help="Wandb project name")
@@ -246,7 +246,7 @@ def main(argv):
 
         trainer = SimpleTrainer2d(image_path=image_path, num_points=args.num_points, 
             iterations=args.iterations, model_name=args.model_name, args=args, model_path=args.model_path, 
-            start_gate_training=args.start_gate_training, stop_gate_training=args.stop_gate_training, use_wandb=args.use_wandb, wandb_project=args.wandb_project)
+            start_mask_training=args.start_mask_training, stop_mask_training=args.stop_mask_training, use_wandb=args.use_wandb, wandb_project=args.wandb_project)
         psnr, ms_ssim, training_time, eval_time, eval_fps = trainer.train()
         psnrs.append(psnr)
         ms_ssims.append(ms_ssim)

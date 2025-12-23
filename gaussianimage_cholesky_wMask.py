@@ -21,8 +21,8 @@ class GaussianImage_Cholesky(nn.Module):
             1,
         ) # 
         self.device = kwargs["device"]
-        self.start_gate_training = kwargs.get("start_gate_training", 0)
-        self.stop_gate_training = kwargs.get("stop_gate_training", 50000)
+        self.start_mask_training = kwargs.get("start_mask_training", 0)
+        self.stop_mask_training = kwargs.get("stop_mask_training", 50000)
         
         if self.init_num_points == self.H * self.W:
             yy, xx = torch.meshgrid(torch.linspace(-1, 1, self.H), torch.linspace(-1, 1, self.W), indexing='ij')
@@ -136,9 +136,9 @@ class GaussianImage_Cholesky(nn.Module):
         return {"render": out_img, "mask_logits": mask}
 
     def train_iter(self, gt_image, iterations):
-        if iterations < self.start_gate_training:
+        if iterations < self.start_mask_training:
             pruning_mode = None
-        elif iterations < self.stop_gate_training:
+        elif iterations < self.stop_mask_training:
             pruning_mode = "soft"
         else: 
             pruning_mode = "hard"
