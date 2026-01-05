@@ -7,6 +7,8 @@ import numpy as np
 import torch
 import sys
 from PIL import Image
+import torch.nn as nn
+import matplotlib.pyplot as plt
 import torch.nn.functional as F
 from pytorch_msssim import ms_ssim
 from utils import *
@@ -108,8 +110,13 @@ class SimpleTrainer2d:
                 }
                 if hasattr(self.gaussian_model, "_mask_logits"):
                     with torch.no_grad():
-                        sparsity = torch.sigmoid(self.gaussian_model._mask_logits).mean().item()
-                        log_data["train/sparsity"] = sparsity
+                        probs = torch.sigmoid(self.gaussian_model._mask_logits)
+                        sparsity_hard = (probs > 0.5).float().mean().item()
+                        sparsity_soft = probs.mean().item()
+                        log_data["train/sparsity_hard"] = sparsity_hard
+                        log_data["train/sparsity_soft"] = sparsity_soft
+                        current_points = self.gaussian_model._xyz.shape[0]
+                        log_data["train/num_points_active"] = int(current_points * sparsity_hard)
                 wandb.log(log_data)
             
             if self.use_wandb and (iter % 5000 == 0):

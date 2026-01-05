@@ -11,5 +11,5 @@ fi
 for num_points in 393216 # 768x512
 do
 CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
---data_name kodak_small --model_name GaussianImage_Cholesky_wMask --num_points $num_points --iterations 5001 --save_imgs --start_mask_training 0 --stop_mask_training 50000 --use_wandb
+--data_name kodak_small --model_name GaussianImage_Cholesky_wMask --num_points $num_points --iterations 50000 --save_imgs --start_mask_training 0 --stop_mask_training 50000 --use_wandb
 done
