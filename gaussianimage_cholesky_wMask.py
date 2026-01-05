@@ -43,6 +43,9 @@ class GaussianImage_Cholesky(nn.Module):
         self.rgb_activation = torch.sigmoid
         self.register_buffer('bound', torch.tensor([0.5, 0.5]).view(1, 2))
         self.register_buffer('cholesky_bound', torch.tensor([0.5, 0, 0.5]).view(1, 3))
+        self.reg_type = "kl"  # "kl" or "l1"
+        self.lambda_reg = 0.005
+        self.target_sparsity = 0.15
 
         if self.quantize:
             self.xyz_quantizer = FakeQuantizationHalf.apply 
@@ -158,13 +161,23 @@ class GaussianImage_Cholesky(nn.Module):
         image = render_pkg["render"]
         recon_loss = loss_fn(image, gt_image, self.loss_type, lambda_value=0.7)
         
-        sparsity_loss = 0
         if pruning_mode != None:
-            mask_logits = render_pkg["mask_logits"]
-            sparsity_loss = torch.mean(mask_logits)
-        lambda_sparsity = 0.005
-        loss = recon_loss + lambda_sparsity * sparsity_loss
+            mask_probs = torch.sigmoid(self._mask_logits)
 
+            # === KL Divergence ===
+            if self.reg_type == "kl":
+                current_rho = torch.mean(mask_probs)
+                current_rho = torch.clamp(current_rho, 1e-5, 1.0 - 1e-5)
+                target_rho = torch.clamp(torch.tensor(self.target_sparsity), 1e-5, 1.0 - 1e-5)
+
+                loss_kl = (target_rho * torch.log(target_rho / current_rho) + (1 - target_rho) * torch.log((1 - target_rho) / (1 - current_rho)))
+                reg_loss = self.lambda_reg * loss_kl
+
+            # === L1 Regularization ===
+            elif self.reg_type == "l1":
+                reg_loss = self.lambda_reg * torch.mean(mask_probs)
+
+        loss = recon_loss + reg_loss
         loss.backward()
         with torch.no_grad():
             mse_loss = F.mse_loss(image, gt_image)
