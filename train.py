@@ -126,9 +126,12 @@ class SimpleTrainer2d:
                     render_pkg = self.gaussian_model.forward(pruning_mode=pruning_mode)
                     img_tensor = render_pkg["render"].clamp(0, 1)
                     img_np = img_tensor.squeeze(0).permute(1, 2, 0).cpu().numpy()
+                    gauss_img_tensor = render_pkg["gauss_render"].clamp(0, 1)
+                    gauss_img_np = gauss_img_tensor.squeeze(0).permute(1, 2, 0).cpu().numpy()
 
                     wandb.log({
                         "render_image": [wandb.Image(img_np, caption=f"Iter {iter}")],
+                        "gauss_image": [wandb.Image(gauss_img_np, caption=f"Iter {iter}")],
                         "iter": iter,
                     }
                     )
