@@ -34,6 +34,7 @@ class GaussianImage_Cholesky(nn.Module):
         self.rgb_activation = torch.sigmoid
         self.register_buffer('bound', torch.tensor([0.5, 0.5]).view(1, 2))
         self.register_buffer('cholesky_bound', torch.tensor([0.5, 0, 0.5]).view(1, 3))
+        self.pruning_mode = None
 
         if self.quantize:
             self.xyz_quantizer = FakeQuantizationHalf.apply 
@@ -67,16 +68,18 @@ class GaussianImage_Cholesky(nn.Module):
 
     def forward(self, **kwargs):
         self.xys, depths, self.radii, conics, num_tiles_hit = project_gaussians_2d(self.get_xyz, self.get_cholesky_elements, self.H, self.W, self.tile_bounds)
+        colors = self.get_features
+        opacities = self._opacity.clone()
         # rendered image
         out_img = rasterize_gaussians_sum(self.xys, depths, self.radii, conics, num_tiles_hit,
-                self.get_features, self._opacity, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=self.background, return_alpha=False)
+                colors, opacities, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=self.background, return_alpha=False)
         out_img = torch.clamp(out_img, 0, 1) #[H, W, 3]
         out_img = out_img.view(-1, self.H, self.W, 3).permute(0, 3, 1, 2).contiguous()
         
         # gaussian visualization 
         geom_colors = self.random_colors.to(self.xys.device) * 0.5 # x0.5 to make it visually dark to avoid too much saturation
         gauss_img = rasterize_gaussians_sum(self.xys, depths, self.radii, conics, num_tiles_hit,
-        geom_colors, self._opacity, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=self.background, return_alpha=False)
+        geom_colors, opacities, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=self.background, return_alpha=False)
         gauss_img = torch.clamp(gauss_img, 0, 1) #[H, W, 3]
         gauss_img = gauss_img.view(-1, self.H, self.W, 3).permute(0, 3, 1, 2).contiguous()
 

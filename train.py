@@ -9,6 +9,7 @@ import sys
 from PIL import Image
 import torch.nn as nn
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import torch.nn.functional as F
 from pytorch_msssim import ms_ssim
 from utils import *
@@ -121,9 +122,7 @@ class SimpleTrainer2d:
             
             if self.use_wandb and (iter % 5000 == 0):
                 with torch.no_grad():
-                    mask_threshold = getattr(self.gaussian_model, "start_mask_training", float('inf'))
-                    pruning_mode = "hard" if iter > mask_threshold else None
-                    render_pkg = self.gaussian_model.forward(pruning_mode=pruning_mode)
+                    render_pkg = self.gaussian_model.forward(pruning_mode=self.gaussian_model.pruning_mode)
                     img_tensor = render_pkg["render"].clamp(0, 1)
                     img_np = img_tensor.squeeze(0).permute(1, 2, 0).cpu().numpy()
                     gauss_img_tensor = render_pkg["gauss_render"].clamp(0, 1)
@@ -148,7 +147,7 @@ class SimpleTrainer2d:
         if self.use_wandb:
             wandb.finish()
 
-        psnr_value, ms_ssim_value = self.test()
+        psnr_value, ms_ssim_value = self.test(pruning_mode=self.gaussian_model.pruning_mode)
         with torch.no_grad():
             self.gaussian_model.eval()
             test_start_time = time.time()
@@ -162,10 +161,10 @@ class SimpleTrainer2d:
         "psnr": psnr_value, "ms-ssim": ms_ssim_value, "rendering_time": test_end_time, "rendering_fps": 1/test_end_time})
         return psnr_value, ms_ssim_value, end_time, test_end_time, 1/test_end_time
 
-    def test(self):
+    def test(self, pruning_mode="None"):
         self.gaussian_model.eval()
         with torch.no_grad():
-            out = self.gaussian_model()
+            out = self.gaussian_model(pruning_mode=pruning_mode)
         mse_loss = F.mse_loss(out["render"].float(), self.gt_image.float())
         psnr = 10 * math.log10(1.0 / mse_loss.item())
         ms_ssim_value = ms_ssim(out["render"].float(), self.gt_image.float(), data_range=1, size_average=True).item()

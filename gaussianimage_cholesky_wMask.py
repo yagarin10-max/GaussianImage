@@ -34,7 +34,7 @@ class GaussianImage_Cholesky(nn.Module):
         self._cholesky = nn.Parameter(torch.rand(self.init_num_points, 3))
         self.register_buffer('_opacity', torch.ones((self.init_num_points, 1)))
         self._features_dc = nn.Parameter(torch.rand(self.init_num_points, 3))
-        self._mask_logits = nn.Parameter(torch.ones(self.init_num_points, 1) * 5.0) # nn.Parameter(torch.rand(self.init_num_points, 1)) # nn.Parameter(torch.ones(self.init_num_points, 1) * 5.0)
+        self._mask_logits = nn.Parameter(torch.ones(self.init_num_points, 1) * 10.0) # nn.Parameter(torch.rand(self.init_num_points, 1)) 
         self.random_colors = torch.rand(self.init_num_points, 3) # for gaussian visualization
         self.last_size = (self.H, self.W)
         self.quantize = kwargs["quantize"]
@@ -45,7 +45,8 @@ class GaussianImage_Cholesky(nn.Module):
         self.register_buffer('cholesky_bound', torch.tensor([0.5, 0, 0.5]).view(1, 3))
         self.reg_type = "kl"  # "kl" or "l1"
         self.lambda_reg = 0.005
-        self.target_sparsity = 0.15
+        self.target_sparsity = 0.85
+        self.pruning_mode = None
 
         if self.quantize:
             self.xyz_quantizer = FakeQuantizationHalf.apply 
@@ -130,6 +131,8 @@ class GaussianImage_Cholesky(nn.Module):
             mask = self._gumbel_sigmoid(self._mask_logits, hard=False)
         elif pruning_mode =="hard":
             mask = self._gumbel_sigmoid(self._mask_logits, hard=True)
+        elif pruning_mode =="deterministic":
+            mask = (torch.sigmoid(self._mask_logits) > 0.5).float()
 
         if mask is not None:
             opacities = opacities * mask
@@ -150,18 +153,20 @@ class GaussianImage_Cholesky(nn.Module):
         return {"render": out_img, "gauss_render": gauss_img}
 
     def train_iter(self, gt_image, iterations):
+        #TODO optimize the loss calculation
         if iterations < self.start_mask_training:
-            pruning_mode = None
+            self.pruning_mode = None
         elif iterations < self.stop_mask_training:
-            pruning_mode = "soft"
+            self.pruning_mode = "soft"
         else: 
-            pruning_mode = "hard"
+            # pruning_mode = "hard"
+            self.pruning_mode = "deterministic"
 
-        render_pkg = self.forward(pruning_mode=pruning_mode)
+        render_pkg = self.forward(pruning_mode=self.pruning_mode)
         image = render_pkg["render"]
-        recon_loss = loss_fn(image, gt_image, self.loss_type, lambda_value=0.7)
-        
-        if pruning_mode != None:
+        loss = loss_fn(image, gt_image, self.loss_type, lambda_value=0.7)
+
+        if self.pruning_mode != None and iterations >= self.start_mask_training:
             mask_probs = torch.sigmoid(self._mask_logits)
 
             # === KL Divergence ===
@@ -171,13 +176,12 @@ class GaussianImage_Cholesky(nn.Module):
                 target_rho = torch.clamp(torch.tensor(self.target_sparsity), 1e-5, 1.0 - 1e-5)
 
                 loss_kl = (target_rho * torch.log(target_rho / current_rho) + (1 - target_rho) * torch.log((1 - target_rho) / (1 - current_rho)))
-                reg_loss = self.lambda_reg * loss_kl
+                loss += self.lambda_reg * loss_kl
 
             # === L1 Regularization ===
             elif self.reg_type == "l1":
-                reg_loss = self.lambda_reg * torch.mean(mask_probs)
+                loss += self.lambda_reg * torch.mean(mask_probs)
 
-        loss = recon_loss + reg_loss
         loss.backward()
         with torch.no_grad():
             mse_loss = F.mse_loss(image, gt_image)
