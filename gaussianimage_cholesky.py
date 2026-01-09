@@ -82,8 +82,13 @@ class GaussianImage_Cholesky(nn.Module):
         geom_colors, opacities, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=self.background, return_alpha=False)
         gauss_img = torch.clamp(gauss_img, 0, 1) #[H, W, 3]
         gauss_img = gauss_img.view(-1, self.H, self.W, 3).permute(0, 3, 1, 2).contiguous()
-
-        return {"render": out_img, "gauss_render": gauss_img}
+        # alpha map visualization
+        ones_color = torch.ones_like(colors)
+        alpha_img = rasterize_gaussians_sum(self.xys, depths, self.radii, conics, num_tiles_hit,
+                ones_color, opacities, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=self.background, return_alpha=False)
+        out_alpha = alpha_img.mean(dim=-1, keepdim=True)
+        out_alpha = out_alpha.view(-1, self.H, self.W, 1).permute(0, 3, 1, 2).contiguous()
+        return {"render": out_img, "gauss_render": gauss_img, "alpha_map": out_alpha}
 
     def train_iter(self, gt_image, iterations):
         render_pkg = self.forward()

@@ -127,10 +127,23 @@ class SimpleTrainer2d:
                     img_np = img_tensor.squeeze(0).permute(1, 2, 0).cpu().numpy()
                     gauss_img_tensor = render_pkg["gauss_render"].clamp(0, 1)
                     gauss_img_np = gauss_img_tensor.squeeze(0).permute(1, 2, 0).cpu().numpy()
+                    alpha_img_tensor = render_pkg["alpha_map"]
+                    alpha_img_np = alpha_img_tensor.squeeze().cpu().numpy()
+                    vmax = 6.0
+                    norm_alpha = np.clip(alpha_img_np, 0, vmax) / vmax
+                    colors = [
+                        (0.0 / vmax, "black"),
+                        (1.0 / vmax, "lime"),
+                        (3.0 / vmax, "orange"),
+                        (6.0 / vmax, "darkred"),
+                    ]
+                    custom_cmap = mcolors.LinearSegmentedColormap.from_list("densitiy_fixed_cmap", colors)
+                    alpha_heatmap = custom_cmap(norm_alpha)[:, :, :3]
 
                     wandb.log({
                         "render_image": [wandb.Image(img_np, caption=f"Iter {iter}")],
                         "gauss_image": [wandb.Image(gauss_img_np, caption=f"Iter {iter}")],
+                        "alpha_heatmap": [wandb.Image(alpha_heatmap, caption=f"Alpha(0-3) Iter {iter}")],
                         "iter": iter,
                     }
                     )
