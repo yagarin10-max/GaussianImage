@@ -1,0 +1,15 @@
+#!/bin/bash
+
+data_path=$1
+
+if [ -z "$data_path" ]; then
+    echo "Error: No data_path provided."
+    echo "Usage: $0 <data_path>"
+    exit 1
+fi
+
+for num_points in 1000
+do
+CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
+--data_name test --model_name GaussianImage_Cholesky_wMask --num_points $num_points --iterations 50000 --save_imgs --start_mask_training 5000 --stop_mask_training 30000 --use_wandb
+done
