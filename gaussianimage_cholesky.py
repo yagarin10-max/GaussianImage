@@ -88,7 +88,7 @@ class GaussianImage_Cholesky(nn.Module):
                 ones_color, opacities, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=self.background, return_alpha=False)
         out_alpha = alpha_img.mean(dim=-1, keepdim=True)
         out_alpha = out_alpha.view(-1, self.H, self.W, 1).permute(0, 3, 1, 2).contiguous()
-        return {"render": out_img, "gauss_render": gauss_img, "alpha_map": out_alpha}
+        return {"render": out_img, "gauss_render": gauss_img, "alpha_map": out_alpha, "final_opacities": opacities}
 
     def train_iter(self, gt_image, iterations):
         render_pkg = self.forward()

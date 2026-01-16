@@ -8,6 +8,8 @@ import torch
 import sys
 from PIL import Image
 import torch.nn as nn
+import matplotlib
+matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import torch.nn.functional as F
@@ -140,10 +142,41 @@ class SimpleTrainer2d:
                     custom_cmap = mcolors.LinearSegmentedColormap.from_list("densitiy_fixed_cmap", colors)
                     alpha_heatmap = custom_cmap(norm_alpha)[:, :, :3]
 
+                    points_np = self.gaussian_model.xys.detach().cpu().numpy()
+                    final_opacities = render_pkg["final_opacities"].squeeze().cpu().numpy()
+                    valid_indices = final_opacities > 0.001
+                    valid_points = points_np[valid_indices]
+
+                    # --- 2. 描画用ヘルパー関数 (ここに追加！) ---
+                    def overlay_points_on_image(bg_image, points):
+                        h, w, _ = bg_image.shape
+                        fig, ax = plt.subplots(figsize=(w/100, h/100), dpi=100)
+                        
+                        # 画像を表示
+                        ax.imshow(bg_image)
+                        # 点をプロット (色はlimeで見やすく)
+                        ax.scatter(points[:, 0], points[:, 1], s=1, c='lime', marker='o', alpha=1.0, linewidths=0)
+                        
+                        ax.axis('off')
+                        plt.subplots_adjust(top=1, bottom=0, right=1, left=0, hspace=0, wspace=0)
+                        plt.margins(0,0)
+                        
+                        fig.canvas.draw()
+                        data = np.array(fig.canvas.buffer_rgba())
+                        plt.close(fig)
+                        return data[:, :, :3]
+
+                    # --- 3. 3つの画像すべてに適用 ---
+                    img_with_points = overlay_points_on_image(img_np, valid_points)
+                    # gauss_with_points = overlay_points_on_image(gauss_img_np, valid_points)
+                    # heatmap_with_points = overlay_points_on_image(alpha_heatmap, valid_points)
                     wandb.log({
                         "render_image": [wandb.Image(img_np, caption=f"Iter {iter}")],
                         "gauss_image": [wandb.Image(gauss_img_np, caption=f"Iter {iter}")],
                         "alpha_heatmap": [wandb.Image(alpha_heatmap, caption=f"Alpha(0-3) Iter {iter}")],
+                        "render_with_points": [wandb.Image(img_with_points, caption=f"Render+Pts {iter}")],
+                        # "gauss_with_points": [wandb.Image(gauss_with_points, caption=f"Gauss+Pts {iter}")],
+                        # "heatmap_with_points": [wandb.Image(heatmap_with_points, caption=f"Heatmap+Pts {iter}")],
                         "iter": iter,
                     }
                     )
@@ -256,6 +289,8 @@ def main(argv):
     image_h, image_w = 0, 0
     if args.data_name == "kodak":
         image_length, start = 24, 0
+    elif args.data_name == "test":
+        image_length, start = 2, 0
     elif args.data_name == "kodak_small":
         image_length, start = 3, 0
     elif args.data_name == "DIV2K_valid_LRX2":
@@ -265,6 +300,8 @@ def main(argv):
             image_path = Path(args.dataset) / f'kodim{i+1:02}.png'
         elif args.data_name == "DIV2K_valid_LRX2":
             image_path = Path(args.dataset) /  f'{i+1:04}x2.png'
+        elif args.data_name == "test":
+            image_path = Path(args.dataset) /  f'test{i+1:02}.png'
 
         trainer = SimpleTrainer2d(image_path=image_path, num_points=args.num_points, 
             iterations=args.iterations, model_name=args.model_name, args=args, model_path=args.model_path, 
