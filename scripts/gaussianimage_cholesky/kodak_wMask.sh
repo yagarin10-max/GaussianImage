@@ -18,7 +18,6 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --save_imgs \
 --start_mask_training 5000 \
 --stop_mask_training 10000 \
---use_wandb \
 --reg_type kl \
 --target_sparsity 0.7 \
 --lambda_reg 0.005 \
@@ -35,7 +34,6 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --save_imgs \
 --start_mask_training 5000 \
 --stop_mask_training 10000 \
---use_wandb \
 --reg_type kl \
 --target_sparsity 0.7 \
 --lambda_reg 0.005 \
