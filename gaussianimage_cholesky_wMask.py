@@ -34,7 +34,8 @@ class GaussianImage_Cholesky(nn.Module):
         self._cholesky = nn.Parameter(torch.rand(self.init_num_points, 3))
         self.register_buffer('_opacity', torch.ones((self.init_num_points, 1)))
         self._features_dc = nn.Parameter(torch.rand(self.init_num_points, 3))
-        self._mask_logits = nn.Parameter(torch.ones(self.init_num_points, 1) * 10.0) # nn.Parameter(torch.rand(self.init_num_points, 1)) 
+        self.init_mask_logit = kwargs.get("init_mask_logit", 2.0)
+        self._mask_logits = nn.Parameter(torch.ones(self.init_num_points, 1) * self.init_mask_logit) 
         self.random_colors = torch.rand(self.init_num_points, 3) # for gaussian visualization
         self.last_size = (self.H, self.W)
         self.quantize = kwargs["quantize"]
@@ -43,9 +44,9 @@ class GaussianImage_Cholesky(nn.Module):
         self.rgb_activation = torch.sigmoid
         self.register_buffer('bound', torch.tensor([0.5, 0.5]).view(1, 2))
         self.register_buffer('cholesky_bound', torch.tensor([0.5, 0, 0.5]).view(1, 3))
-        self.reg_type = "kl"  # "kl" or "l1"
-        self.lambda_reg = 0.005
-        self.target_sparsity = 0.85
+        self.reg_type = kwargs.get("reg_type", "kl")  # "kl" or "l1" or "l1sq"
+        self.lambda_reg = kwargs.get("lambda_reg", 0.005)
+        self.target_sparsity = kwargs.get("target_sparsity", 0.7)
         self.pruning_mode = None
 
         if self.quantize:
@@ -186,6 +187,9 @@ class GaussianImage_Cholesky(nn.Module):
             # === L1 Regularization ===
             elif self.reg_type == "l1":
                 loss += self.lambda_reg * torch.mean(mask_probs)
+            
+            elif self.reg_type == "l1sq":
+                loss += self.lambda_reg * torch.mean(mask_probs)**2
 
         loss.backward()
         with torch.no_grad():

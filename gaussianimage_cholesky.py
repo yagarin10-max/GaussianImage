@@ -22,7 +22,13 @@ class GaussianImage_Cholesky(nn.Module):
         ) # 
         self.device = kwargs["device"]
 
-        self._xyz = nn.Parameter(torch.atanh(2 * (torch.rand(self.init_num_points, 2) - 0.5)))
+        if self.init_num_points == self.H * self.W:
+            yy, xx = torch.meshgrid(torch.linspace(-1, 1, self.H), torch.linspace(-1, 1, self.W), indexing='ij')
+            grid = torch.stack([xx, yy], dim=-1).reshape(-1, 2)
+            self._xyz = nn.Parameter(torch.atanh(grid * (1 - 1e-4))) # avoid exactly -1 or 1
+        else:
+            self._xyz = nn.Parameter(torch.atanh(2 * (torch.rand(self.init_num_points, 2) - 0.5)))
+        
         self._cholesky = nn.Parameter(torch.rand(self.init_num_points, 3))
         self.register_buffer('_opacity', torch.ones((self.init_num_points, 1)))
         self._features_dc = nn.Parameter(torch.rand(self.init_num_points, 3))

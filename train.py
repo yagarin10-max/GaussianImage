@@ -35,6 +35,10 @@ class SimpleTrainer2d:
         use_wandb: bool = False,
         wandb_project: str = "GaussianImage",
         wandb_entity: str = None,
+        reg_type: str = "kl",
+        target_sparsity: float = 0.7,
+        lambda_reg: float = 0.005,
+        init_mask_logit: float = 2.0,
     ):
         self.device = torch.device("cuda:0")
         self.gt_image = image_path_to_tensor(image_path).to(self.device)
@@ -46,13 +50,22 @@ class SimpleTrainer2d:
         self.H, self.W = self.gt_image.shape[2], self.gt_image.shape[3]
         self.iterations = iterations
         self.save_imgs = args.save_imgs
-        self.log_dir = Path(f"./checkpoints/{args.data_name}/{model_name}_{args.iterations}_{num_points}/{self.image_name}")
+
+        # self.log_dir = Path(f"./checkpoints/{args.data_name}/{model_name}_{args.iterations}_{num_points}/{self.image_name}")
+        if model_name == "GaussianImage_Cholesky_wMask":
+            # Shorten names for folder structure
+            # maskGI_Ch_KL_tgt0.7_lambda0.005_init2.0_50000_70000
+            folder_name = f"maskGI_Ch_{reg_type}_tgt{target_sparsity}_lam{lambda_reg}_init{init_mask_logit}_{args.iterations}_{num_points}"
+        else:
+            folder_name = f"{model_name}_{args.iterations}_{num_points}"
+            
+        self.log_dir = Path(f"./checkpoints/{args.data_name}/{folder_name}/{self.image_name}")
         self.use_wandb = use_wandb
         if self.use_wandb:
             wandb.init(
                 project=wandb_project,
                 entity=wandb_entity,
-                name=f"{self.image_name}_{model_name}_{iterations}_{num_points}",
+                name=f"{self.image_name}_{folder_name}",
                 config={
                     "model": model_name,
                     "image": self.image_name,
@@ -61,12 +74,17 @@ class SimpleTrainer2d:
                     "lr": args.lr,
                     "start_mask": start_mask_training,
                     "stop_mask": stop_mask_training,
+                    "reg_type": reg_type,
+                    "target_sparsity": target_sparsity,
+                    "lambda_reg": lambda_reg,
+                    "init_mask_logit": init_mask_logit,
                 },
             )
         if model_name == "GaussianImage_Cholesky_wMask":
             from gaussianimage_cholesky_wMask import GaussianImage_Cholesky
             self.gaussian_model = GaussianImage_Cholesky(loss_type="L2", opt_type="adan", num_points=self.num_points, H=self.H, W=self.W, BLOCK_H=BLOCK_H, BLOCK_W=BLOCK_W, 
-                device=self.device, lr=args.lr, quantize=False, start_mask_training=start_mask_training, stop_mask_training=stop_mask_training).to(self.device)
+                device=self.device, lr=args.lr, quantize=False, start_mask_training=start_mask_training, stop_mask_training=stop_mask_training,
+                reg_type=reg_type, target_sparsity=target_sparsity, lambda_reg=lambda_reg, init_mask_logit=init_mask_logit).to(self.device)
         
         elif model_name == "GaussianImage_Cholesky":
             from gaussianimage_cholesky import GaussianImage_Cholesky
@@ -190,10 +208,15 @@ class SimpleTrainer2d:
             print("Pruning points...")
             self.gaussian_model.prune_points(threshold=0.5)
         
+
+        psnr_value, ms_ssim_value, num_points_final = self.test(pruning_mode=self.gaussian_model.pruning_mode)
+        wandb.run.summary["final_num_gaussians"] = num_points_final
+        wandb.run.summary["final_psnr"] = psnr_value
+        wandb.run.summary["final_ms_ssim"] = ms_ssim_value
+
         if self.use_wandb:
             wandb.finish()
 
-        psnr_value, ms_ssim_value = self.test(pruning_mode=self.gaussian_model.pruning_mode)
         with torch.no_grad():
             self.gaussian_model.eval()
             test_start_time = time.time()
@@ -204,7 +227,8 @@ class SimpleTrainer2d:
         self.logwriter.write("Training Complete in {:.4f}s, Eval time:{:.8f}s, FPS:{:.4f}".format(end_time, test_end_time, 1/test_end_time))
         torch.save(self.gaussian_model.state_dict(), self.log_dir / "gaussian_model.pth.tar")
         np.save(self.log_dir / "training.npy", {"iterations": iter_list, "training_psnr": psnr_list, "training_time": end_time, 
-        "psnr": psnr_value, "ms-ssim": ms_ssim_value, "rendering_time": test_end_time, "rendering_fps": 1/test_end_time})
+        "psnr": psnr_value, "ms-ssim": ms_ssim_value, "rendering_time": test_end_time, "rendering_fps": 1/test_end_time,
+        "initial_points": self.num_points, "final_points": num_points_final})
         return psnr_value, ms_ssim_value, end_time, test_end_time, 1/test_end_time
 
     def test(self, pruning_mode="None"):
@@ -214,13 +238,14 @@ class SimpleTrainer2d:
         mse_loss = F.mse_loss(out["render"].float(), self.gt_image.float())
         psnr = 10 * math.log10(1.0 / mse_loss.item())
         ms_ssim_value = ms_ssim(out["render"].float(), self.gt_image.float(), data_range=1, size_average=True).item()
-        self.logwriter.write("Test PSNR:{:.4f}, MS_SSIM:{:.6f}".format(psnr, ms_ssim_value))
+        num_points_final = self.gaussian_model._xyz.shape[0]
+        self.logwriter.write("Test PSNR:{:.4f}, MS_SSIM:{:.6f}, Final_points:{:d}".format(psnr, ms_ssim_value, num_points_final))
         if self.save_imgs:
             transform = transforms.ToPILImage()
             img = transform(out["render"].float().squeeze(0))
             name = self.image_name + "_fitting.png" 
             img.save(str(self.log_dir / name))
-        return psnr, ms_ssim_value
+        return psnr, ms_ssim_value, num_points_final
 
 def image_path_to_tensor(image_path: Path):
     img = Image.open(image_path)
@@ -268,6 +293,11 @@ def parse_args(argv):
     )
     parser.add_argument("--use_wandb", action="store_true", help="Use wandb for logging")
     parser.add_argument("--wandb_project", type=str, default="GaussianImage", help="Wandb project name")
+    parser.add_argument("--reg_type", type=str, default="kl", help="Regularization type for mask training: kl, l1, l1sq")
+    parser.add_argument("--target_sparsity", type=float, default=0.7, help="Target sparsity for KL divergence regularization")
+    parser.add_argument("--lambda_reg", type=float, default=0.005, help="Regularization weight for mask training")
+    parser.add_argument("--init_mask_logit", type=float, default=2.0, help="Initial mask logit value")
+
     args = parser.parse_args(argv)
     return args
 
@@ -284,7 +314,13 @@ def main(argv):
         torch.backends.cudnn.benchmark = False
         np.random.seed(args.seed)
 
-    logwriter = LogWriter(Path(f"./checkpoints/{args.data_name}/{args.model_name}_{args.iterations}_{args.num_points}"))
+    if args.model_name == "GaussianImage_Cholesky_wMask":
+        folder_name = f"maskGI_Ch_{args.reg_type}_tgt{args.target_sparsity}_lam{args.lambda_reg}_init{args.init_mask_logit}_{args.iterations}_{args.num_points}"
+    else:
+        folder_name = f"{args.model_name}_{args.iterations}_{args.num_points}"
+    
+    logwriter = LogWriter(Path(f"./checkpoints/{args.data_name}/{folder_name}"))
+
     psnrs, ms_ssims, training_times, eval_times, eval_fpses = [], [], [], [], []
     image_h, image_w = 0, 0
     if args.data_name == "kodak":
@@ -305,7 +341,8 @@ def main(argv):
 
         trainer = SimpleTrainer2d(image_path=image_path, num_points=args.num_points, 
             iterations=args.iterations, model_name=args.model_name, args=args, model_path=args.model_path, 
-            start_mask_training=args.start_mask_training, stop_mask_training=args.stop_mask_training, use_wandb=args.use_wandb, wandb_project=args.wandb_project)
+            start_mask_training=args.start_mask_training, stop_mask_training=args.stop_mask_training, use_wandb=args.use_wandb, wandb_project=args.wandb_project,
+            reg_type=args.reg_type, target_sparsity=args.target_sparsity, lambda_reg=args.lambda_reg, init_mask_logit=args.init_mask_logit)
         psnr, ms_ssim, training_time, eval_time, eval_fps = trainer.train()
         psnrs.append(psnr)
         ms_ssims.append(ms_ssim)
