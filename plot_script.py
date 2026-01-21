@@ -9,168 +9,190 @@ from collections import defaultdict
 # 設定
 # ==========================================
 BASE_DIR = "checkpoints/kodak_small/"
-TARGET_ITERATION = "50000"  # 固定するIteration数
+TARGET_ITERATION = "50000"  # 比較対象とするIteration
 
-# 保存するグラフのファイル名
-OUTPUT_PSNR_AVG = "plots/plot_psnr_average.png"
-OUTPUT_SSIM_AVG = "plots/plot_ssim_average.png"
-OUTPUT_PSNR_ALL = "plots/plot_psnr_all_images.png"
-OUTPUT_SSIM_ALL = "plots/plot_ssim_all_images.png"
+# 保存ファイル名
+OUTPUT_PSNR = "plots/comparison_psnr.png"
+OUTPUT_SSIM = "plots/comparison_ssim.png"
+OUTPUT_FINAL_POINTS = "plots/comparison_final_points.png" # 追加: 最終点数の推移も見れるように
 
-# ==========================================
-# データ読み込みと解析
-# ==========================================
-def parse_logs(base_dir, target_iter):
-    # データ構造: metrics[num_gaussians][image_name] = {'psnr': float, 'ssim': float}
-    metrics = defaultdict(dict)
+def format_method_name(raw_name):
+    """
+    ディレクトリ名をグラフの凡例用に短く整形する
+    """
+    # Baseline (Choleskyなど)
+    if "GaussianImage_Cholesky" in raw_name and "wMask" not in raw_name:
+        return "Baseline"
     
-    # ディレクトリ名のパターン: GaussianImage_Cholesky_50000_{num_gaussians}
-    # 正規表現でディレクトリを検索
-    dir_pattern = os.path.join(base_dir, f"GaussianImage_Cholesky_{target_iter}_*")
-    experiment_dirs = glob.glob(dir_pattern)
-    
-    print(f"Found {len(experiment_dirs)} experiment directories.")
+    # Mask手法 (maskGI...)
+    # maskGI_Ch_kl_tgt0.7_lam0.005_init2.0 -> Mask (kl, tgt0.7, λ0.005)
+    if "maskGI" in raw_name:
+        match = re.search(r"maskGI_Ch_([^_]+)_tgt([^_]+)_lam([^_]+)_init([^_]+)", raw_name)
+        if match:
+            reg = match.group(1)
+            tgt = match.group(2)
+            lam = match.group(3)
+            # init = match.group(4) # 必要ならinitも表示
+            return f"Mask ({reg}, tgt{tgt}, λ{lam})"
+            
+    return raw_name
 
-    for exp_dir in experiment_dirs:
-        # ディレクトリ名から初期ガウシアン数を抽出
+def parse_npy_logs(base_dir, target_iter):
+    data = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    
+    # ディレクトリ検索
+    search_pattern = os.path.join(base_dir, f"*_{target_iter}_*")
+    exp_dirs = glob.glob(search_pattern)
+    
+    print(f"Found {len(exp_dirs)} experiment directories matching iter {target_iter}.")
+
+    for exp_dir in exp_dirs:
         dir_name = os.path.basename(exp_dir)
-        match_dir = re.search(rf"GaussianImage_Cholesky_{target_iter}_(\d+)", dir_name)
         
-        if not match_dir:
+        # 正規表現で「手法名」と「初期点数」を分離
+        # 末尾の _{target_iter}_{num_points} を基準に分割
+        match = re.search(rf"^(.*)_{target_iter}_(\d+)$", dir_name)
+        
+        if not match:
             continue
             
-        num_gaussians = int(match_dir.group(1))
+        raw_method_name = match.group(1)
+        init_points = int(match.group(2)) # ディレクトリ名から初期点数を取得
         
-        # 各画像ディレクトリ (kodim01, kodim02...) を探索
+        # 表示名を整形
+        display_name = format_method_name(raw_method_name)
+        
         image_dirs = glob.glob(os.path.join(exp_dir, "kodim*"))
         
         for img_dir in image_dirs:
-            img_name = os.path.basename(img_dir)
-            train_txt_path = os.path.join(img_dir, "train.txt")
+            npy_path = os.path.join(img_dir, "training.npy")
             
-            if os.path.exists(train_txt_path):
+            if os.path.exists(npy_path):
                 try:
-                    with open(train_txt_path, 'r') as f:
-                        content = f.read()
-                        # 正規表現で数値を抽出
-                        # Test PSNR:31.5981, MS_SSIM:0.989548
-                        match_metrics = re.search(r"Test PSNR:([\d\.]+),\s*MS_SSIM:([\d\.]+)", content)
-                        if match_metrics:
-                            psnr = float(match_metrics.group(1))
-                            ssim = float(match_metrics.group(2))
-                            
-                            metrics[num_gaussians][img_name] = {
-                                'psnr': psnr,
-                                'ssim': ssim
-                            }
-                except Exception as e:
-                    print(f"Error reading {train_txt_path}: {e}")
-    
-    return metrics
+                    npy_data = np.load(npy_path, allow_pickle=True).item()
+                    
+                    # ---------------------------------------------------
+                    # データの取得と保険処理（フォールバック）
+                    # ---------------------------------------------------
+                    psnr = npy_data.get('psnr', None)
+                    ssim = npy_data.get('ms-ssim', None)
+                    
+                    # final_pointsの取得ロジック
+                    if 'final_points' in npy_data:
+                        # キーが存在する場合はそれを使う (Mask手法など)
+                        final_pts = npy_data['final_points']
+                    else:
+                        # キーが存在しない場合は、初期点数をそのまま使う (Baselineなど)
+                        final_pts = init_points 
 
+                    # リストに追加
+                    if psnr is not None:
+                        data[display_name][init_points]['psnr'].append(psnr)
+                    if ssim is not None:
+                        data[display_name][init_points]['ssim'].append(ssim)
+                    
+                    # final_ptsは None になり得ないのでそのまま追加
+                    data[display_name][init_points]['final_points'].append(final_pts)
+                        
+                except Exception as e:
+                    print(f"Error reading {npy_path}: {e}")
+
+    return data
 # ==========================================
-# グラフ描画関数
+# プロット関数 (X軸を動的に計算するように修正)
 # ==========================================
-def plot_graph(x_values, y_values_dict, y_label, title, output_file, show_individual=False):
+def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='initial'):
+    """
+    x_axis_key: 'initial' なら初期点数(固定)をX軸に、
+                'final' なら実際の最終点数(平均)をX軸に使用する
+    """
     plt.figure(figsize=(10, 6))
     
-    # x_values (ガウシアン数) でソートするためのインデックス
-    sorted_indices = np.argsort(x_values)
-    x_sorted = np.array(x_values)[sorted_indices]
+    methods = sorted(data.keys())
     
-    # 全画像の平均を計算するためのリスト
-    all_y_matrix = [] # (num_points, num_images)
-    
-    # 画像ごとのデータを収集
-    # y_values_dict: {img_name: [val_at_x1, val_at_x2...]} 形式に変換済みと仮定
-    
-    image_names = list(y_values_dict.keys())
-    
-    for img_name in image_names:
-        # x_sortedに対応するyの値を取り出す
-        y_list = []
-        for x in x_sorted:
-            # データが存在しない場合はNaNなどを入れる処理が必要だが、今回はある前提で進める
-            y_list.append(y_values_dict[img_name].get(x, None))
-        
-        # Noneが含まれていない場合のみプロットに使用
-        if None not in y_list:
-            all_y_matrix.append(y_list)
-            if show_individual:
-                plt.plot(x_sorted, y_list, alpha=0.3, linewidth=1, label='_nolegend_') # 個別線は薄く
-    
-    # 平均値の計算とプロット
-    if all_y_matrix:
-        all_y_matrix = np.array(all_y_matrix)
-        y_mean = np.mean(all_y_matrix, axis=0)
-        
-        plt.plot(x_sorted, y_mean, color='blue', linewidth=2.5, marker='o', label='Average')
-        
-        # 最大値・最小値の幅を塗りつぶす（オプション：ばらつきが見やすくなります）
-        if show_individual:
-            y_max = np.max(all_y_matrix, axis=0)
-            y_min = np.min(all_y_matrix, axis=0)
-            plt.fill_between(x_sorted, y_min, y_max, color='blue', alpha=0.1)
+    if not methods:
+        print(f"No data found for metric: {metric_key}")
+        return
 
-    plt.xlabel("Number of Initial Gaussians")
+    for method in methods:
+        # このメソッドに含まれるすべての実験設定（初期点数など）を取得
+        init_points_keys = sorted(data[method].keys())
+        
+        plot_points = [] # (x, y) のタプルを格納するリスト
+        
+        for init_pt in init_points_keys:
+            # Y軸の値 (PSNR or SSIM) の平均
+            y_values = data[method][init_pt][metric_key]
+            if not y_values:
+                continue
+            y_mean = np.mean(y_values)
+            
+            # X軸の値の決定
+            if x_axis_key == 'final':
+                # 実際の最終点数の平均を使用 (Mask手法など変化する場合に対応)
+                final_pts_values = data[method][init_pt]['final_points']
+                x_val = np.mean(final_pts_values)
+            else:
+                # 初期点数を使用 (Baseline比較用など)
+                x_val = init_pt
+            
+            plot_points.append((x_val, y_mean))
+        
+        # 線を綺麗に引くために、X軸の値でソートする
+        # (点数が減るとX順序が入れ替わる可能性があるため)
+        plot_points.sort(key=lambda p: p[0])
+        
+        if plot_points:
+            xs, ys = zip(*plot_points)
+            
+            # マーカー設定
+            linestyle = '-'
+            marker = 'o'
+            if "mask" in method.lower() or "Mask" in method:
+                marker = 's' # Mask手法は四角
+            
+            plt.plot(xs, ys, marker=marker, linestyle=linestyle, linewidth=2, label=method)
+
+    plt.xlabel("Number of Gaussian Points (Average Final)" if x_axis_key == 'final' else "Number of Initial Gaussians")
     plt.ylabel(y_label)
     plt.title(title)
     plt.grid(True, linestyle='--', alpha=0.7)
     plt.legend()
     plt.tight_layout()
     
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
     plt.savefig(output_file)
-    print(f"Saved: {output_file}")
+    print(f"Saved plot: {output_file}")
     plt.close()
 
 # ==========================================
-# メイン処理
+# メイン処理 (呼び出し部分の変更)
 # ==========================================
 def main():
-    data = parse_logs(BASE_DIR, TARGET_ITERATION)
+    print("Parsing NPY files...")
+    data = parse_npy_logs(BASE_DIR, TARGET_ITERATION)
     
     if not data:
-        print("No data found. Check directory structure.")
+        print("No valid data found.")
         return
 
-    # プロット用にデータを整理
-    # x軸: ガウシアン数
-    x_values = list(data.keys())
-    
-    # 画像ごとのy軸データ辞書を作成
-    # psnr_data[img_name] = {num_gaussians: value}
-    all_images = set()
-    for num_g in data:
-        all_images.update(data[num_g].keys())
-    
-    psnr_data_by_img = defaultdict(dict)
-    ssim_data_by_img = defaultdict(dict)
-    
-    for num_g in x_values:
-        for img in all_images:
-            if img in data[num_g]:
-                psnr_data_by_img[img][num_g] = data[num_g][img]['psnr']
-                ssim_data_by_img[img][num_g] = data[num_g][img]['ssim']
+    # 1. PSNR vs Final Points (これが欲しい図です！)
+    # X軸を 'final' に指定して、実際の削減後の点数に対してプロットします
+    plot_comparison(data, 'psnr', 'Average PSNR (dB)', 
+                   f"PSNR vs Final Points (Iter: {TARGET_ITERATION})", 
+                   "plots/comparison_psnr_vs_points.png", 
+                   x_axis_key='final') # <--- ここ重要
 
-    # 1. PSNR 平均グラフ
-    plot_graph(x_values, psnr_data_by_img, "PSNR", 
-               f"PSNR vs Number of Gaussians (Iter: {TARGET_ITERATION}) - Average", 
-               OUTPUT_PSNR_AVG, show_individual=False)
+    # 2. MS-SSIM vs Final Points
+    plot_comparison(data, 'ssim', 'Average MS-SSIM', 
+                   f"MS-SSIM vs Final Points (Iter: {TARGET_ITERATION})", 
+                   "plots/comparison_ssim_vs_points.png", 
+                   x_axis_key='final')
 
-    # 2. MS-SSIM 平均グラフ
-    plot_graph(x_values, ssim_data_by_img, "MS-SSIM", 
-               f"MS-SSIM vs Number of Gaussians (Iter: {TARGET_ITERATION}) - Average", 
-               OUTPUT_SSIM_AVG, show_individual=False)
-               
-    # 3. PSNR 全画像重ね合わせグラフ
-    plot_graph(x_values, psnr_data_by_img, "PSNR", 
-               f"PSNR vs Number of Gaussians - All Images", 
-               OUTPUT_PSNR_ALL, show_individual=True)
-
-    # 4. MS-SSIM 全画像重ね合わせグラフ
-    plot_graph(x_values, ssim_data_by_img, "MS-SSIM", 
-               f"MS-SSIM vs Number of Gaussians - All Images", 
-               OUTPUT_SSIM_ALL, show_individual=True)
+    # (参考) 元の Initial Points ベースの比較も残したい場合
+    # plot_comparison(data, 'psnr', 'Average PSNR', 
+    #                "PSNR vs Initial Points", 
+    #                "plots/comparison_psnr_initial.png", x_axis_key='initial')
 
 if __name__ == "__main__":
     main()
