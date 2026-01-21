@@ -122,11 +122,35 @@ class GaussianImage_Cholesky(nn.Module):
         
         print(f"Pruned points: {probs.shape[0]} to {self.init_num_points} points.")
 
+    def calculate_importance_score(self):
+        # 1. 実際のCholesky要素を取得 (Boundを加算したもの)
+        # shape: [N, 3]
+        cholesky = self.get_cholesky_elements
+
+        # 2. 面積係数を計算 (対角成分の積)
+        # 行列式 |L| = L00 * L11
+        # 要素0と要素2を取り出して掛ける
+        L00 = cholesky[:, 0]
+        L11 = cholesky[:, 2]
+        
+        # これがガウシアンの物理的な「面積」に比例する値です
+        # abs()は念のためですが、boundのおかげで正になっているはずです
+        area = (L00 * L11).abs().view(-1, 1)  # shape: [N, 1]
+
+        # 3. 不透明度を取得 (Pruningモードに合わせる)
+        opacities = self._opacity
+        
+        # 4. 重要度スコア = 不透明度 × 面積
+        importance_score = opacities * area
+        
+        return importance_score
+
     def forward(self, pruning_mode=None): # Puning mode: "None", "hard", "soft"
         self.xys, depths, self.radii, conics, num_tiles_hit = project_gaussians_2d(self.get_xyz, self.get_cholesky_elements, self.H, self.W, self.tile_bounds)
         
         colors = self.get_features
         opacities = self._opacity.clone()
+        score = self.calculate_importance_score().detach()
         mask = None
         if pruning_mode =="soft":
             mask = self._gumbel_sigmoid(self._mask_logits, hard=False)
