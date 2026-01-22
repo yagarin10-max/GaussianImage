@@ -8,13 +8,14 @@ from collections import defaultdict
 # ==========================================
 # 設定
 # ==========================================
-BASE_DIR = "checkpoints/kodak/"
+BASE_DIR = "checkpoints/kodak_small/"
 TARGET_ITERATION = "50000"  # 比較対象とするIteration
 
 # 保存ファイル名
 OUTPUT_PSNR = "plots/comparison_psnr.png"
 OUTPUT_SSIM = "plots/comparison_ssim.png"
 OUTPUT_FINAL_POINTS = "plots/comparison_final_points.png" # 追加: 最終点数の推移も見れるように
+OUTPUT_TABLE = "plots/summary_table.txt"
 
 def format_method_name(raw_name):
     """
@@ -98,6 +99,70 @@ def parse_npy_logs(base_dir, target_iter):
                     print(f"Error reading {npy_path}: {e}")
 
     return data
+
+# ==========================================
+# 表作成・出力関数 (New!)
+# ==========================================
+def export_summary_table(data, output_file):
+    lines = []
+    
+    # ヘッダー作成
+    # Method | Init | Final(Avg) | Params | Params(K) | PSNR | SSIM
+    header = f"{'Method':<35} | {'Init':<8} | {'Final(Avg)':<10} | {'Params':<10} | {'Params(K)':<9} | {'PSNR':<8} | {'SSIM':<8}"
+    sep = "-" * len(header)
+    
+    lines.append(sep)
+    lines.append(header)
+    lines.append(sep)
+    
+    # データをリスト化してソート (手法名 -> 初期点数 の順)
+    rows = []
+    methods = sorted(data.keys())
+    
+    for method in methods:
+        init_pts_list = sorted(data[method].keys())
+        for init_pt in init_pts_list:
+            stats = data[method][init_pt]
+            
+            # 平均計算
+            psnr_avg = np.mean(stats['psnr']) if stats['psnr'] else 0
+            ssim_avg = np.mean(stats['ssim']) if stats['ssim'] else 0
+            final_pts_avg = np.mean(stats['final_points']) if stats['final_points'] else 0
+            
+            # Params計算 (Gaussian数 * 8)
+            params = final_pts_avg * 8
+            params_k = params / 1000.0
+            
+            rows.append({
+                'method': method,
+                'init': init_pt,
+                'final': final_pts_avg,
+                'params': params,
+                'params_k': params_k,
+                'psnr': psnr_avg,
+                'ssim': ssim_avg
+            })
+
+    # 行を追加
+    for r in rows:
+        line = f"{r['method']:<35} | {r['init']:<8} | {r['final']:<10.1f} | {r['params']:<10.1f} | {r['params_k']:<9.2f} | {r['psnr']:<8.4f} | {r['ssim']:<8.6f}"
+        lines.append(line)
+    
+    lines.append(sep)
+    
+    # 結果の結合
+    output_text = "\n".join(lines)
+    
+    # 1. コンソールに出力
+    print("\n" + "="*20 + " SUMMARY TABLE " + "="*20)
+    print(output_text)
+    print("="*55 + "\n")
+    
+    # 2. ファイルに保存
+    with open(output_file, "w") as f:
+        f.write(output_text)
+    print(f"Summary table saved to: {output_file}")
+
 # ==========================================
 # プロット関数 (X軸を動的に計算するように修正)
 # ==========================================
@@ -176,7 +241,10 @@ def main():
         print("No valid data found.")
         return
 
-    # 1. PSNR vs Final Points (これが欲しい図です！)
+    # 1. 表データの作成と出力
+    export_summary_table(data, OUTPUT_TABLE)
+    
+    # 1. PSNR vs Final Points
     # X軸を 'final' に指定して、実際の削減後の点数に対してプロットします
     plot_comparison(data, 'psnr', 'Average PSNR (dB)', 
                    f"PSNR vs Final Points (Iter: {TARGET_ITERATION})", 
