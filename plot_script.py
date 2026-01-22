@@ -33,8 +33,8 @@ def format_method_name(raw_name):
             reg = match.group(1)
             tgt = match.group(2)
             lam = match.group(3)
-            # init = match.group(4) # 必要ならinitも表示
-            return f"Mask ({reg}, tgt{tgt}, λ{lam})"
+            init = match.group(4) # 必要ならinitも表示
+            return f"Mask ({reg}, tgt{tgt}, λ{lam}, init{init})"
             
     return raw_name
 
