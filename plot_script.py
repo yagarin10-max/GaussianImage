@@ -8,7 +8,7 @@ from collections import defaultdict
 # ==========================================
 # 設定
 # ==========================================
-BASE_DIR = "checkpoints/kodak_small/"
+BASE_DIR = "checkpoints/kodak/"
 TARGET_ITERATION = "50000"  # 比較対象とするIteration
 
 # 保存ファイル名

@@ -210,9 +210,10 @@ class SimpleTrainer2d:
         
 
         psnr_value, ms_ssim_value, num_points_final = self.test(pruning_mode=self.gaussian_model.pruning_mode)
-        wandb.run.summary["final_num_gaussians"] = num_points_final
-        wandb.run.summary["final_psnr"] = psnr_value
-        wandb.run.summary["final_ms_ssim"] = ms_ssim_value
+        if self.use_wandb:
+            wandb.run.summary["final_num_gaussians"] = num_points_final
+            wandb.run.summary["final_psnr"] = psnr_value
+            wandb.run.summary["final_ms_ssim"] = ms_ssim_value
 
         if self.use_wandb:
             wandb.finish()
