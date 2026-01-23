@@ -19,7 +19,6 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --start_mask_training 15000 \
 --stop_mask_training 20000 \
 --reg_type kl \
---use_wandb \
 --target_sparsity 0.4 \
 --lambda_reg 0.1 \
 --init_mask_logit 0.0
@@ -36,7 +35,6 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --start_mask_training 15000 \
 --stop_mask_training 20000 \
 --reg_type kl \
---use_wandb \
 --target_sparsity 0.4 \
 --lambda_reg 0.1 \
 --init_mask_logit 1.0
@@ -53,7 +51,6 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --start_mask_training 15000 \
 --stop_mask_training 20000 \
 --reg_type kl \
---use_wandb \
 --target_sparsity 0.4 \
 --lambda_reg 0.1 \
 --init_mask_logit 2.0
@@ -71,7 +68,6 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --start_mask_training 15000 \
 --stop_mask_training 20000 \
 --reg_type kl \
---use_wandb \
 --target_sparsity 0.4 \
 --lambda_reg 0.05 \
 --init_mask_logit 0.0
@@ -88,7 +84,6 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --start_mask_training 15000 \
 --stop_mask_training 20000 \
 --reg_type kl \
---use_wandb \
 --target_sparsity 0.4 \
 --lambda_reg 0.05 \
 --init_mask_logit 1.0
@@ -105,7 +100,6 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --start_mask_training 15000 \
 --stop_mask_training 20000 \
 --reg_type kl \
---use_wandb \
 --target_sparsity 0.4 \
 --lambda_reg 0.05 \
 --init_mask_logit 2.0
