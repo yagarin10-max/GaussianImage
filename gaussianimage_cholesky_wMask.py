@@ -196,7 +196,7 @@ class GaussianImage_Cholesky(nn.Module):
         image = render_pkg["render"]
         loss = loss_fn(image, gt_image, self.loss_type, lambda_value=0.7)
 
-        if self.pruning_mode != None and iterations >= self.start_mask_training:
+        if self.pruning_mode != None and self.pruning_mode != "deterministic" and iterations >= self.start_mask_training:
             mask_probs = torch.sigmoid(self._mask_logits)
 
             # === KL Divergence ===
