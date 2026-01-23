@@ -8,7 +8,7 @@ if [ -z "$data_path" ]; then
     exit 1
 fi
 
-for num_points in 85000
+for num_points in 4000
 do
 CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --data_name kodak --model_name GaussianImage_Cholesky --num_points $num_points --iterations 50000 --save_imgs
