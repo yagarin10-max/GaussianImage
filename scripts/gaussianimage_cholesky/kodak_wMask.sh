@@ -18,7 +18,7 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --save_imgs \
 --start_mask_training 15000 \
 --stop_mask_training 20000 \
---reg_type l1 \
+--reg_type l1sq \
 --target_sparsity 0.7 \
 --lambda_reg 0.1 \
 --init_mask_logit 0.0
@@ -34,7 +34,7 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --save_imgs \
 --start_mask_training 15000 \
 --stop_mask_training 20000 \
---reg_type l1 \
+--reg_type l1sq \
 --target_sparsity 0.7 \
 --lambda_reg 0.1 \
 --init_mask_logit 1.0
@@ -50,7 +50,7 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --save_imgs \
 --start_mask_training 15000 \
 --stop_mask_training 20000 \
---reg_type l1 \
+--reg_type l1sq \
 --target_sparsity 0.7 \
 --lambda_reg 0.1 \
 --init_mask_logit 2.0
@@ -67,7 +67,7 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --save_imgs \
 --start_mask_training 15000 \
 --stop_mask_training 20000 \
---reg_type l1 \
+--reg_type l1sq \
 --target_sparsity 0.7 \
 --lambda_reg 0.05 \
 --init_mask_logit 0.0
@@ -83,7 +83,7 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --save_imgs \
 --start_mask_training 15000 \
 --stop_mask_training 20000 \
---reg_type l1 \
+--reg_type l1sq \
 --target_sparsity 0.7 \
 --lambda_reg 0.05 \
 --init_mask_logit 1.0
@@ -99,7 +99,7 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --save_imgs \
 --start_mask_training 15000 \
 --stop_mask_training 20000 \
---reg_type l1 \
+--reg_type l1sq \
 --target_sparsity 0.7 \
 --lambda_reg 0.05 \
 --init_mask_logit 2.0
