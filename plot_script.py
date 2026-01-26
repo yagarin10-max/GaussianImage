@@ -17,8 +17,9 @@ OUTPUT_SSIM = "plots/comparison_ssim.png"
 OUTPUT_FINAL_POINTS = "plots/comparison_final_points.png" # 追加: 最終点数の推移も見れるように
 OUTPUT_TABLE = "plots/summary_table.txt"
 
+SHOW_ERROR_BARS = True
 MAX_PLOT_POINTS = 40000
-FILTER_KEYWORDS = []
+FILTER_KEYWORDS = ["Baseline", "kl", "tgt0.7"]
 LEGEND_MODE = "outside"
 
 def format_method_name(raw_name):
@@ -172,23 +173,25 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
 
     methods = sorted(data.keys())
     plotted_count = 0
+    markers = ['o', 's', '^', 'D', 'v', 'P', '*', 'X']
     if not methods:
         print(f"No data found for metric: {metric_key}")
         return
 
-    for method in methods:
+    for i, method in enumerate(methods):
         if FILTER_KEYWORDS:
             is_match = False
             for kw in FILTER_KEYWORDS:
                 if kw in method:
                     is_match = True
                     break
-            if not is_match:
-                continue
+            if not is_match: continue
 
         # このメソッドに含まれるすべての実験設定（初期点数など）を取得
         init_points_keys = sorted(data[method].keys())
         
+        x_means, y_means = [], []
+        x_stds, y_stds = [], []
         plot_points = [] # (x, y) のタプルを格納するリスト
         
         for init_pt in init_points_keys:
@@ -197,34 +200,44 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
             if not y_values:
                 continue
             y_mean = np.mean(y_values)
-            
+            y_std = np.std(y_values)
             # X軸の値の決定
             if x_axis_key == 'final':
                 # 実際の最終点数の平均を使用 (Mask手法など変化する場合に対応)
                 final_pts_values = data[method][init_pt]['final_points']
                 x_val = np.mean(final_pts_values)
+                x_std = np.std(final_pts_values)
             else:
                 # 初期点数を使用 (Baseline比較用など)
-                x_val = init_pt
+                x_mean = init_pt
+                x_std = 0
             
-            if MAX_PLOT_POINTS is not None:
-                if x_val > MAX_PLOT_POINTS:
+            if MAX_PLOT_POINTS is not None and x_mean > MAX_PLOT_POINTS:
                     continue
-
-            plot_points.append((x_val, y_mean))
-        
-        # 線を綺麗に引くために、X軸の値でソートする
-        # (点数が減るとX順序が入れ替わる可能性があるため)
-        plot_points.sort(key=lambda p: p[0])
-        
-        if plot_points:
-            xs, ys = zip(*plot_points)
-            linestyle = '-'
-            marker = 'o'
-            if "mask" in method.lower() or "Mask" in method:
-                marker = 's' # Mask手法は四角
             
-            plt.plot(xs, ys, marker=marker, linestyle=linestyle, linewidth=2, label=method)
+            x_means.append(x_mean)
+            y_means.append(y_mean)
+            x_stds.append(x_std)
+            y_stds.append(y_std)
+        
+        if x_means:
+            combined = sorted(zip(x_means, y_means, x_stds, y_stds), key=lambda x: x[0])
+            xs, ys, xerrs, yerrs = zip(*combined)
+            marker = markers[i % len(markers)]
+            if SHOW_ERROR_BARS:
+                plt.errorbar(xs, ys, 
+                             xerr=xerrs if x_axis_key == 'final' else None, 
+                             yerr=yerrs, 
+                             marker=marker, 
+                             linestyle='-', 
+                             linewidth=1.5,
+                             capsize=3,
+                             elinewidth=1.0,
+                             alpha=0.8, 
+                             label=method)
+            else:
+                plt.plot(xs, ys, marker=marker, linestyle='-', linewidth=2, label=method)
+
             plotted_count += 1
 
     if plotted_count == 0:
