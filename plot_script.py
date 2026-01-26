@@ -22,7 +22,7 @@ MAX_PLOT_POINTS = 40000
 LEGEND_MODE = "outside"
 FILTER_SPECS = [
     ["Baseline"],          # グループ1: "Baseline" を含むならOK
-    ["l1", "tgt0.7"],      # グループ2: "kl" と "tgt0.7" の両方を含むならOK
+    ["kl", "tgt0.6"],      # グループ2: "kl" と "tgt0.7" の両方を含むならOK
     # ["l1", "tgt0.7"]     # 必要ならグループ3を追加...
 ]
 

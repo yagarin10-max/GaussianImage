@@ -220,6 +220,11 @@ class GaussianImage_Cholesky(nn.Module):
                 loss_kl = (target_rho * torch.log(target_rho / current_rho) + (1 - target_rho) * torch.log((1 - target_rho) / (1 - current_rho)))
                 loss += self.lambda_reg * loss_kl
 
+            elif self.reg_type == "ada_kl":
+                H, W = self.H, self.W
+                kl_loss = self.calc_adaptive_sparsity_scatter(gt_tiles, mask_probs, self.xys, H, W, tile_size, sparsity_min=0.01, sparsity_max=self.target_sparsity)
+                loss += self.lambda_reg * kl_loss
+
             # === L1 Regularization ===
             elif self.reg_type == "l1":
                 loss += self.lambda_reg * torch.mean(mask_probs)
@@ -236,6 +241,72 @@ class GaussianImage_Cholesky(nn.Module):
 
         self.scheduler.step()
         return loss, psnr
+
+    def calc_adaptive_sparsity_scatter(self, gt_tiles, mask_probs, xys, H, W, tile_size, sparsity_min, sparsity_max):
+        tile_complexity = torch.var(gt_tiles, dim=1).squeeze(0) # [num_tiles]
+        
+        # 正規化して0~1の範囲にする (バッチ内の最大分散で割るなど)
+        max_var = tile_complexity.max()
+        normalized_complexity = tile_complexity / (max_var + 1e-5)
+        target_rho = sparsity_min + (sparsity_max - sparsity_min) * normalized_complexity
+        target_rho = target_rho.detach() # Targetは定数扱い
+        # タイルのグリッド数
+        num_tiles_x = W // tile_size
+        num_tiles_y = H // tile_size
+        total_tiles = num_tiles_x * num_tiles_y
+        
+        # 座標をデタッチ (正則化で点を移動させないため。移動させたいなら外す)
+        xys_detached = xys.detach()
+
+        # 各点がどのタイルに落ちるか計算
+        tile_idx_x = (xys_detached[:, 0] / tile_size).long()
+        tile_idx_y = (xys_detached[:, 1] / tile_size).long()
+
+        # 画面外の点は無視するためのマスク
+        valid_points = (tile_idx_x >= 0) & (tile_idx_x < num_tiles_x) & \
+                       (tile_idx_y >= 0) & (tile_idx_y < num_tiles_y)
+        
+        # 有効な点のみ抽出
+        valid_mask_probs = mask_probs[valid_points].squeeze(-1) # [M]
+        valid_idx_x = tile_idx_x[valid_points]
+        valid_idx_y = tile_idx_y[valid_points]
+        
+        # 1次元のタイルインデックスに変換 (0 ~ total_tiles-1)
+        linear_tile_idx = valid_idx_y * num_tiles_x + valid_idx_x # [M]
+
+        # 集計用のTensor準備
+        tile_mask_sum = torch.zeros(total_tiles, device=mask_probs.device)
+        tile_point_count = torch.zeros(total_tiles, device=mask_probs.device)
+
+        # Scatter Add: インデックスに従って値を加算
+        # マスク値の合計
+        tile_mask_sum.scatter_add_(0, linear_tile_idx, valid_mask_probs)
+        # 点の数の合計 (すべて1を加算)
+        tile_point_count.scatter_add_(0, linear_tile_idx, torch.ones_like(valid_mask_probs))
+
+        # 平均の計算 (0除算回避)
+        # 点が1つもないタイルは、勾配0でよいので、current=targetにしてロスを0にするなどの処理が必要
+        # ここでは count > 0 の部分だけ計算し、0の部分はtargetと同じ値で埋める戦略をとります
+        
+        current_rho = torch.zeros_like(target_rho)
+        has_points_mask = tile_point_count > 0
+        
+        current_rho[has_points_mask] = tile_mask_sum[has_points_mask] / tile_point_count[has_points_mask]
+        
+        # 点がないタイルはLoss計算から除外するため、targetと同じ値を入れておく (log(1)=0になる)
+        # または単にマスクする
+        current_rho[~has_points_mask] = target_rho[~has_points_mask]
+
+        current_rho = torch.clamp(current_rho, 1e-5, 1.0 - 1e-5)
+
+        min_len = min(current_rho.shape[0], target_rho.shape[0])
+        current_rho = current_rho[:min_len]
+        target_rho = target_rho[:min_len]
+
+        kl_per_tile = (target_rho * torch.log(target_rho / current_rho) + 
+                       (1 - target_rho) * torch.log((1 - target_rho) / (1 - current_rho)))
+
+        return torch.mean(kl_per_tile)
 
     def forward_quantize(self):
         l_vqm, m_bit = 0, 16*self.init_num_points*2
