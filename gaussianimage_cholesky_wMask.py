@@ -196,6 +196,18 @@ class GaussianImage_Cholesky(nn.Module):
         image = render_pkg["render"]
         loss = loss_fn(image, gt_image, self.loss_type, lambda_value=0.7)
 
+        tile_size = 16
+        pred_tiles = F.unfold(image, kernel_size=tile_size, stride=tile_size)
+        gt_tiles = F.unfold(gt_image, kernel_size=tile_size, stride=tile_size)
+
+        tile_l2 = torch.mean((pred_tiles - gt_tiles) ** 2, dim=1)
+        
+        mean_error = tile_l2.mean().detach()
+        weights = (tile_l2.detach() / (mean_error + 1e-8)).clamp(min=0.1, max=5.0)
+
+        weighted_l2_loss = torch.mean(tile_l2 * weights)
+        loss += weighted_l2_loss
+
         if self.pruning_mode != None and self.pruning_mode != "deterministic" and iterations >= self.start_mask_training:
             mask_probs = torch.sigmoid(self._mask_logits)
 
