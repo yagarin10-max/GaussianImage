@@ -17,6 +17,10 @@ OUTPUT_SSIM = "plots/comparison_ssim.png"
 OUTPUT_FINAL_POINTS = "plots/comparison_final_points.png" # 追加: 最終点数の推移も見れるように
 OUTPUT_TABLE = "plots/summary_table.txt"
 
+MAX_PLOT_POINTS = 40000
+FILTER_KEYWORDS = []
+LEGEND_MODE = "outside"
+
 def format_method_name(raw_name):
     """
     ディレクトリ名をグラフの凡例用に短く整形する
@@ -40,8 +44,6 @@ def format_method_name(raw_name):
 
 def parse_npy_logs(base_dir, target_iter):
     data = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-    
-    # ディレクトリ検索
     search_pattern = os.path.join(base_dir, f"*_{target_iter}_*")
     exp_dirs = glob.glob(search_pattern)
     
@@ -49,18 +51,12 @@ def parse_npy_logs(base_dir, target_iter):
 
     for exp_dir in exp_dirs:
         dir_name = os.path.basename(exp_dir)
-        
-        # 正規表現で「手法名」と「初期点数」を分離
-        # 末尾の _{target_iter}_{num_points} を基準に分割
         match = re.search(rf"^(.*)_{target_iter}_(\d+)$", dir_name)
-        
         if not match:
             continue
             
         raw_method_name = match.group(1)
-        init_points = int(match.group(2)) # ディレクトリ名から初期点数を取得
-        
-        # 表示名を整形
+        init_points = int(match.group(2))
         display_name = format_method_name(raw_method_name)
         
         image_dirs = glob.glob(os.path.join(exp_dir, "kodim*"))
@@ -171,15 +167,25 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
     x_axis_key: 'initial' なら初期点数(固定)をX軸に、
                 'final' なら実際の最終点数(平均)をX軸に使用する
     """
-    plt.figure(figsize=(10, 6))
-    
+    figsize = (12, 6) if LEGEND_MODE == "outside" else (10, 6)
+    plt.figure(figsize=figsize)
+
     methods = sorted(data.keys())
-    
+    plotted_count = 0
     if not methods:
         print(f"No data found for metric: {metric_key}")
         return
 
     for method in methods:
+        if FILTER_KEYWORDS:
+            is_match = False
+            for kw in FILTER_KEYWORDS:
+                if kw in method:
+                    is_match = True
+                    break
+            if not is_match:
+                continue
+
         # このメソッドに含まれるすべての実験設定（初期点数など）を取得
         init_points_keys = sorted(data[method].keys())
         
@@ -201,6 +207,10 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
                 # 初期点数を使用 (Baseline比較用など)
                 x_val = init_pt
             
+            if MAX_PLOT_POINTS is not None:
+                if x_val > MAX_PLOT_POINTS:
+                    continue
+
             plot_points.append((x_val, y_mean))
         
         # 線を綺麗に引くために、X軸の値でソートする
@@ -209,21 +219,35 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
         
         if plot_points:
             xs, ys = zip(*plot_points)
-            
-            # マーカー設定
             linestyle = '-'
             marker = 'o'
             if "mask" in method.lower() or "Mask" in method:
                 marker = 's' # Mask手法は四角
             
             plt.plot(xs, ys, marker=marker, linestyle=linestyle, linewidth=2, label=method)
+            plotted_count += 1
+
+    if plotted_count == 0:
+        print(f"Warning: No data matched filters {FILTER_KEYWORDS}. Skipping plot.")
+        plt.close()
+        return
 
     plt.xlabel("Number of Gaussian Points (Average Final)" if x_axis_key == 'final' else "Number of Initial Gaussians")
     plt.ylabel(y_label)
     plt.title(title)
     plt.grid(True, linestyle='--', alpha=0.7)
-    plt.legend()
-    plt.tight_layout()
+
+    if LEGEND_MODE == "outside":
+        # グラフ枠外の右上に配置 (bbox_to_anchor=(x, y))
+        plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0, fontsize='small')
+        # レイアウト調整 (右側が見切れないようにする)
+        plt.subplots_adjust(right=0.75) 
+    elif LEGEND_MODE == "inside":
+        plt.legend(loc='best', fontsize='small')
+        plt.tight_layout()
+    else:
+        # "none" の場合は表示しない
+        plt.tight_layout()
     
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     plt.savefig(output_file)
