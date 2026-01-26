@@ -205,7 +205,7 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
             if x_axis_key == 'final':
                 # 実際の最終点数の平均を使用 (Mask手法など変化する場合に対応)
                 final_pts_values = data[method][init_pt]['final_points']
-                x_val = np.mean(final_pts_values)
+                x_mean = np.mean(final_pts_values)
                 x_std = np.std(final_pts_values)
             else:
                 # 初期点数を使用 (Baseline比較用など)
