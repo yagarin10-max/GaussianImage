@@ -19,8 +19,12 @@ OUTPUT_TABLE = "plots/summary_table.txt"
 
 SHOW_ERROR_BARS = True
 MAX_PLOT_POINTS = 40000
-FILTER_KEYWORDS = ["Baseline", "kl", "tgt0.7"]
 LEGEND_MODE = "outside"
+FILTER_SPECS = [
+    ["Baseline"],          # グループ1: "Baseline" を含むならOK
+    ["kl", "tgt0.7"],      # グループ2: "kl" と "tgt0.7" の両方を含むならOK
+    # ["l1", "tgt0.7"]     # 必要ならグループ3を追加...
+]
 
 def format_method_name(raw_name):
     """
@@ -179,10 +183,10 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
         return
 
     for i, method in enumerate(methods):
-        if FILTER_KEYWORDS:
+        if FILTER_SPECS:
             is_match = False
-            for kw in FILTER_KEYWORDS:
-                if kw in method:
+            for group in FILTER_SPECS:
+                if all(kw in method for kw in group):
                     is_match = True
                     break
             if not is_match: continue
