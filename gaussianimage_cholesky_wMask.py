@@ -238,7 +238,7 @@ class GaussianImage_Cholesky(nn.Module):
 
             elif self.reg_type == "ada_kl":
                 H, W = self.H, self.W
-                kl_loss = self.calc_adaptive_sparsity_scatter(gt_tiles, mask_probs, self.xys, H, W, tile_size, sparsity_min=0.01, sparsity_max=self.target_sparsity)
+                kl_loss = self.calc_adaptive_sparsity_scatter(gt_tiles, mask_probs, self.xys, H, W, tile_size, sparsity_min=0.1, sparsity_max=self.target_sparsity)
                 loss += self.lambda_reg * kl_loss
 
             # === L1 Regularization ===
