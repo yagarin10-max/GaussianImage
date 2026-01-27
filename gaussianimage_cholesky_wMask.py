@@ -155,9 +155,9 @@ class GaussianImage_Cholesky(nn.Module):
         score = self.calculate_importance_score().detach()
         mask = None
         if pruning_mode =="soft":
-            mask = self._gumbel_sigmoid(self._mask_logits, hard=False)
+            mask = self._gumbel_sigmoid(self._mask_logits * score, hard=False)
         elif pruning_mode =="hard":
-            mask = self._gumbel_sigmoid(self._mask_logits, hard=True)
+            mask = self._gumbel_sigmoid(self._mask_logits * score, hard=True)
         elif pruning_mode =="deterministic":
             mask = (torch.sigmoid(self._mask_logits) > 0.5).float()
 
