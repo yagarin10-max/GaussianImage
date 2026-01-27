@@ -48,6 +48,8 @@ class GaussianImage_Cholesky(nn.Module):
         self.lambda_reg = kwargs.get("lambda_reg", 0.005)
         self.target_sparsity = kwargs.get("target_sparsity", 0.7)
         self.pruning_mode = None
+        self.mask_scores_ema = None
+        self.ema_decay = 0.99
 
         if self.quantize:
             self.xyz_quantizer = FakeQuantizationHalf.apply 
@@ -165,7 +167,7 @@ class GaussianImage_Cholesky(nn.Module):
         # rendered image
         out_img = rasterize_gaussians_sum(self.xys, depths, self.radii, conics, num_tiles_hit,
                 colors, opacities, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=self.background, return_alpha=False)
-        # out_img = torch.clamp(out_img, 0, 1) #[H, W, 3]
+        out_img = torch.clamp(out_img, 0, 1) #[H, W, 3]
         out_img = out_img.view(-1, self.H, self.W, 3).permute(0, 3, 1, 2).contiguous()
 
         # gaussian visualization
@@ -188,6 +190,20 @@ class GaussianImage_Cholesky(nn.Module):
             self.pruning_mode = None
         elif iterations < self.stop_mask_training:
             self.pruning_mode = "soft"
+
+            with torch.no_grad():
+                current_probs = torch.sigmoid(self._mask_logits)
+                if self.mask_scores_ema is None:
+                    self.mask_scores_ema = current_probs.detach().clone()
+                else:
+                    self.mask_scores_ema = self.ema_decay * self.mask_scores_ema + (1 - self.ema_decay) * current_probs
+        elif iterations == self.stop_mask_training: 
+            self.pruning_mode = "deterministic"   
+            with torch.no_grad():
+                final_mask = self.mask_scores_ema > 0.5
+                self._mask_logits[final_mask] = 10.0  # large positive value to ensure sigmoid ~ 1
+                self._mask_logits[~final_mask] = -10.0  # large negative value to ensure sigmoid ~ 0
+                print("Finalized masks for deterministic pruning.")
         else: 
             # pruning_mode = "hard"
             self.pruning_mode = "deterministic"

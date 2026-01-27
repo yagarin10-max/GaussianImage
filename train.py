@@ -59,7 +59,7 @@ class SimpleTrainer2d:
         else:
             folder_name = f"{model_name}_{args.iterations}_{num_points}"
             
-        self.log_dir = Path(f"./checkpoints_woclamp/{args.data_name}/{folder_name}/{self.image_name}")
+        self.log_dir = Path(f"./checkpoints/{args.data_name}/{folder_name}/{self.image_name}")
         self.use_wandb = use_wandb
         if self.use_wandb:
             wandb.init(
@@ -320,7 +320,7 @@ def main(argv):
     else:
         folder_name = f"{args.model_name}_{args.iterations}_{args.num_points}"
     
-    logwriter = LogWriter(Path(f"./checkpoints_woclamp/{args.data_name}/{folder_name}"))
+    logwriter = LogWriter(Path(f"./checkpoints/{args.data_name}/{folder_name}"))
 
     psnrs, ms_ssims, training_times, eval_times, eval_fpses = [], [], [], [], []
     image_h, image_w = 0, 0
