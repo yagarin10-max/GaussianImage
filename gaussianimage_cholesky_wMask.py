@@ -165,7 +165,7 @@ class GaussianImage_Cholesky(nn.Module):
         # rendered image
         out_img = rasterize_gaussians_sum(self.xys, depths, self.radii, conics, num_tiles_hit,
                 colors, opacities, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=self.background, return_alpha=False)
-        out_img = torch.clamp(out_img, 0, 1) #[H, W, 3]
+        # out_img = torch.clamp(out_img, 0, 1) #[H, W, 3]
         out_img = out_img.view(-1, self.H, self.W, 3).permute(0, 3, 1, 2).contiguous()
 
         # gaussian visualization
@@ -200,13 +200,13 @@ class GaussianImage_Cholesky(nn.Module):
         pred_tiles = F.unfold(image, kernel_size=tile_size, stride=tile_size)
         gt_tiles = F.unfold(gt_image, kernel_size=tile_size, stride=tile_size)
 
-        tile_l2 = torch.mean((pred_tiles - gt_tiles) ** 2, dim=1)
+        # tile_l2 = torch.mean((pred_tiles - gt_tiles) ** 2, dim=1)
         
-        mean_error = tile_l2.mean().detach()
-        weights = (tile_l2.detach() / (mean_error + 1e-8)).clamp(min=0.1, max=5.0)
+        # mean_error = tile_l2.mean().detach()
+        # weights = (tile_l2.detach() / (mean_error + 1e-8)).clamp(min=0.1, max=5.0)
 
-        weighted_l2_loss = torch.mean(tile_l2 * weights)
-        loss += weighted_l2_loss
+        # weighted_l2_loss = torch.mean(tile_l2 * weights)
+        # loss += weighted_l2_loss
 
         if self.pruning_mode != None and self.pruning_mode != "deterministic" and iterations >= self.start_mask_training:
             mask_probs = torch.sigmoid(self._mask_logits)
