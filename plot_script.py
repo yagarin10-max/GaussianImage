@@ -8,7 +8,7 @@ from collections import defaultdict
 # ==========================================
 # 設定
 # ==========================================
-BASE_DIR = "checkpoints_woclamp/kodak/"
+BASE_DIR = "checkpoints/kodak/"
 TARGET_ITERATION = "50000"  # 比較対象とするIteration
 
 # 保存ファイル名
@@ -22,33 +22,53 @@ MAX_PLOT_POINTS = 40000
 LEGEND_MODE = "outside"
 FILTER_SPECS = [
     ["Baseline"],          # グループ1: "Baseline" を含むならOK
-    ["kl"],      # グループ2: "kl" と "tgt0.7" の両方を含むならOK
-    ["l1"]     # 必要ならグループ3を追加...
+    ["kl", "noclp"],      # グループ2: "kl" と "tgt0.7" の両方を含むならOK
+    ["kl", "ema"]
+    # ["l1"]     # 必要ならグループ3を追加...
 ]
 
-def format_method_name(raw_name):
+def format_method_name(prefix, suffix):
     """
-    ディレクトリ名をグラフの凡例用に短く整形する
+    prefix: _50000_xxxxx より前の部分 (例: maskGI_..._init1.0)
+    suffix: _50000_xxxxx より後の部分 (例: _noclp)
     """
-    # Baseline (Choleskyなど)
-    if "GaussianImage_Cholesky" in raw_name and "wMask" not in raw_name:
-        return "Baseline"
+    name = ""
     
-    # Mask手法 (maskGI...)
-    # maskGI_Ch_kl_tgt0.7_lam0.005_init2.0 -> Mask (kl, tgt0.7, λ0.005)
-    if "maskGI" in raw_name:
-        match = re.search(r"maskGI_Ch_([^_]+)_tgt([^_]+)_lam([^_]+)_init([^_]+)", raw_name)
+    # --- 1. ベースの手法名を決定 ---
+    if "GaussianImage_Cholesky" in prefix and "wMask" not in prefix:
+        name = "Baseline"
+    elif "maskGI" in prefix:
+        # パラメータ抽出 (adaなどもあれば対応)
+        # maskGI_Ch_(ada_)?kl... のようにadaがある場合も考慮
+        match = re.search(r"maskGI_Ch_(?:ada_)?([^_]+)_tgt([^_]+)_lam([^_]+)_init([^_]+)", prefix)
         if match:
-            reg = match.group(1)
-            tgt = match.group(2)
-            lam = match.group(3)
-            init = match.group(4) # 必要ならinitも表示
-            return f"Mask ({reg}, tgt{tgt}, λ{lam}, init{init})"
-            
-    return raw_name
+            reg, tgt, lam, init_val = match.group(1), match.group(2), match.group(3), match.group(4)
+            name = f"Mask ({reg}, tgt{tgt}, λ{lam}, init{init_val})"
+            if "ada" in prefix:
+                name += " [Ada]"
+        else:
+            name = prefix # マッチしない場合はそのまま
+    else:
+        name = prefix
+
+    # --- 2. サフィックス (noclp, ema, score) をタグ付け ---
+    # suffixには "_noclp" や "_ema_score" などが入ってくる
+    if "noclp" in suffix or "noclp" in prefix: # prefixに含まれるケースも考慮
+        name += " [No Clip]"
+    
+    if "ema" in suffix:
+        name += " [EMA]"
+        
+    if "score" in suffix:
+        name += " [Score]"
+
+    return name
+
 
 def parse_npy_logs(base_dir, target_iter):
     data = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    
+    # 検索パターン: イテレーション番号が含まれるディレクトリ全て
     search_pattern = os.path.join(base_dir, f"*_{target_iter}_*")
     exp_dirs = glob.glob(search_pattern)
     
@@ -56,51 +76,41 @@ def parse_npy_logs(base_dir, target_iter):
 
     for exp_dir in exp_dirs:
         dir_name = os.path.basename(exp_dir)
-        match = re.search(rf"^(.*)_{target_iter}_(\d+)$", dir_name)
+        
+        # 正規表現の変更:
+        # ^(.*)            -> Group 1: プレフィックス (手法名 + パラメータ)
+        # _{target_iter}_  -> イテレーション (区切り文字)
+        # (\d+)            -> Group 2: 初期点数
+        # (.*)$            -> Group 3: サフィックス (_noclp, _ema など。無い場合は空文字)
+        match = re.search(rf"^(.*)_{target_iter}_(\d+)(.*)$", dir_name)
+        
         if not match:
             continue
             
-        raw_method_name = match.group(1)
+        prefix = match.group(1)
         init_points = int(match.group(2))
-        display_name = format_method_name(raw_method_name)
+        suffix = match.group(3) # "_noclp" など、あるいは空文字
+        
+        # 表示名を作成
+        display_name = format_method_name(prefix, suffix)
         
         image_dirs = glob.glob(os.path.join(exp_dir, "kodim*"))
         
         for img_dir in image_dirs:
             npy_path = os.path.join(img_dir, "training.npy")
-            
             if os.path.exists(npy_path):
                 try:
                     npy_data = np.load(npy_path, allow_pickle=True).item()
-                    
-                    # ---------------------------------------------------
-                    # データの取得と保険処理（フォールバック）
-                    # ---------------------------------------------------
                     psnr = npy_data.get('psnr', None)
                     ssim = npy_data.get('ms-ssim', None)
-                    
-                    # final_pointsの取得ロジック
-                    if 'final_points' in npy_data:
-                        # キーが存在する場合はそれを使う (Mask手法など)
-                        final_pts = npy_data['final_points']
-                    else:
-                        # キーが存在しない場合は、初期点数をそのまま使う (Baselineなど)
-                        final_pts = init_points 
+                    final_pts = npy_data.get('final_points', init_points)
 
-                    # リストに追加
-                    if psnr is not None:
-                        data[display_name][init_points]['psnr'].append(psnr)
-                    if ssim is not None:
-                        data[display_name][init_points]['ssim'].append(ssim)
-                    
-                    # final_ptsは None になり得ないのでそのまま追加
-                    data[display_name][init_points]['final_points'].append(final_pts)
-                        
+                    if psnr is not None: data[display_name][init_points]['psnr'].append(psnr)
+                    if ssim is not None: data[display_name][init_points]['ssim'].append(ssim)
+                    data[display_name][init_points]['final_points'].append(final_pts)     
                 except Exception as e:
                     print(f"Error reading {npy_path}: {e}")
-
     return data
-
 # ==========================================
 # 表作成・出力関数 (New!)
 # ==========================================
@@ -168,140 +178,132 @@ def export_summary_table(data, output_file):
 # プロット関数 (X軸を動的に計算するように修正)
 # ==========================================
 def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='initial'):
-    """
-    x_axis_key: 'initial' なら初期点数(固定)をX軸に、
-                'final' なら実際の最終点数(平均)をX軸に使用する
-    """
     figsize = (12, 6) if LEGEND_MODE == "outside" else (10, 6)
     plt.figure(figsize=figsize)
-
+    
     methods = sorted(data.keys())
     plotted_count = 0
-    markers = ['o', 's', '^', 'D', 'v', 'P', '*', 'X']
-    if not methods:
-        print(f"No data found for metric: {metric_key}")
-        return
-
+    
+    # カラーサイクル (Baselineなどは同じ色にしたい場合、ここで工夫も可能ですが
+    # 基本は自動割り当てで、線種で区別するのが分かりやすいです)
+    markers = ['o', 's', '^', 'D', 'v', '<', '>', 'p', '*', 'h']
+    
     for i, method in enumerate(methods):
+        # --- フィルタリング ---
         if FILTER_SPECS:
             is_match = False
             for group in FILTER_SPECS:
-                if all(kw in method for kw in group):
+                # 検索対象を「表示名(method)」にするか「元のディレクトリ名」にするか迷いますが
+                # format_method_nameで "No Clip" 等を入れているので、method検索でOKです。
+                # 小文字にして検索することで "noclp" でも "No Clip" でもヒットしやすくします。
+                method_lower = method.lower()
+                
+                # グループ内のキーワードがすべて含まれているか (AND条件)
+                # キーワード側も小文字化して比較
+                if all(kw.lower() in method_lower for kw in group):
                     is_match = True
                     break
-            if not is_match: continue
+            if not is_match:
+                continue
 
-        # このメソッドに含まれるすべての実験設定（初期点数など）を取得
-        init_points_keys = sorted(data[method].keys())
+        # --- スタイル決定ロジック ---
+        linestyle = '-' # デフォルト: 実線
+        marker = markers[i % len(markers)]
+        alpha = 0.8
         
-        x_means, y_means = [], []
-        x_stds, y_stds = [], []
-        plot_points = [] # (x, y) のタプルを格納するリスト
+        # [No Clip] が含まれていれば点線にする
+        if "[No Clip]" in method:
+            linestyle = '--' 
+            alpha = 0.6 # 少し薄くする
+            
+        # [EMA] が含まれていれば一点鎖線にする（お好みで）
+        # if "[EMA]" in method:
+        #    linestyle = '-.'
+
+        init_points_keys = sorted(data[method].keys())
+        x_means, y_means, x_stds, y_stds = [], [], [], []
         
         for init_pt in init_points_keys:
-            # Y軸の値 (PSNR or SSIM) の平均
-            y_values = data[method][init_pt][metric_key]
-            if not y_values:
-                continue
-            y_mean = np.mean(y_values)
-            y_std = np.std(y_values)
-            # X軸の値の決定
+            y_vals = data[method][init_pt][metric_key]
+            if not y_vals: continue
+            
+            y_mean = np.mean(y_vals)
+            y_std = np.std(y_vals)
+            
             if x_axis_key == 'final':
-                # 実際の最終点数の平均を使用 (Mask手法など変化する場合に対応)
-                final_pts_values = data[method][init_pt]['final_points']
-                x_mean = np.mean(final_pts_values)
-                x_std = np.std(final_pts_values)
+                final_pts_vals = data[method][init_pt]['final_points']
+                x_mean = np.mean(final_pts_vals)
+                x_std = np.std(final_pts_vals)
             else:
-                # 初期点数を使用 (Baseline比較用など)
                 x_mean = init_pt
                 x_std = 0
             
             if MAX_PLOT_POINTS is not None and x_mean > MAX_PLOT_POINTS:
-                    continue
-            
-            x_means.append(x_mean)
-            y_means.append(y_mean)
-            x_stds.append(x_std)
-            y_stds.append(y_std)
+                continue
+
+            x_means.append(x_mean); y_means.append(y_mean)
+            x_stds.append(x_std); y_stds.append(y_std)
         
         if x_means:
             combined = sorted(zip(x_means, y_means, x_stds, y_stds), key=lambda x: x[0])
             xs, ys, xerrs, yerrs = zip(*combined)
-            marker = markers[i % len(markers)]
+            
             if SHOW_ERROR_BARS:
-                plt.errorbar(xs, ys, 
-                             xerr=xerrs if x_axis_key == 'final' else None, 
-                             yerr=yerrs, 
-                             marker=marker, 
-                             linestyle='-', 
-                             linewidth=1.5,
-                             capsize=3,
-                             elinewidth=1.0,
-                             alpha=0.8, 
-                             label=method)
+                plt.errorbar(
+                    xs, ys, 
+                    xerr=xerrs if x_axis_key == 'final' else None,
+                    yerr=yerrs, 
+                    marker=marker, 
+                    linestyle=linestyle, # ここで点線/実線を適用
+                    linewidth=1.5,
+                    capsize=3,
+                    elinewidth=1.0,
+                    alpha=alpha,
+                    label=method
+                )
             else:
-                plt.plot(xs, ys, marker=marker, linestyle='-', linewidth=2, label=method)
-
+                plt.plot(xs, ys, marker=marker, linestyle=linestyle, linewidth=2, label=method)
+            
             plotted_count += 1
 
     if plotted_count == 0:
-        print(f"Warning: No data matched filters {FILTER_KEYWORDS}. Skipping plot.")
+        print(f"Warning: No data matched filters. Skipping plot.")
         plt.close()
         return
 
-    plt.xlabel("Number of Gaussian Points (Average Final)" if x_axis_key == 'final' else "Number of Initial Gaussians")
+    plt.xlabel("Average Final Gaussians" if x_axis_key == 'final' else "Initial Gaussians")
     plt.ylabel(y_label)
     plt.title(title)
-    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.grid(True, linestyle='--', alpha=0.5)
 
     if LEGEND_MODE == "outside":
-        # グラフ枠外の右上に配置 (bbox_to_anchor=(x, y))
         plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0, fontsize='small')
-        # レイアウト調整 (右側が見切れないようにする)
         plt.subplots_adjust(right=0.75) 
     elif LEGEND_MODE == "inside":
         plt.legend(loc='best', fontsize='small')
-        plt.tight_layout()
-    else:
-        # "none" の場合は表示しない
-        plt.tight_layout()
     
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     plt.savefig(output_file)
     print(f"Saved plot: {output_file}")
     plt.close()
 
-# ==========================================
-# メイン処理 (呼び出し部分の変更)
-# ==========================================
 def main():
-    print("Parsing NPY files...")
+    print("Parsing NPY files with advanced suffix support...")
     data = parse_npy_logs(BASE_DIR, TARGET_ITERATION)
     
     if not data:
         print("No valid data found.")
         return
 
-    # 1. 表データの作成と出力
     export_summary_table(data, OUTPUT_TABLE)
-    
-    # 1. PSNR vs Final Points
-    # X軸を 'final' に指定して、実際の削減後の点数に対してプロットします
+
     plot_comparison(data, 'psnr', 'Average PSNR (dB)', 
                    f"PSNR vs Final Points (Iter: {TARGET_ITERATION})", 
-                   "plots/comparison_psnr_vs_points.png", 
-                   x_axis_key='final') # <--- ここ重要
+                   OUTPUT_PSNR, x_axis_key='final')
 
-    # 2. MS-SSIM vs Final Points
     plot_comparison(data, 'ssim', 'Average MS-SSIM', 
                    f"MS-SSIM vs Final Points (Iter: {TARGET_ITERATION})", 
-                   "plots/comparison_ssim_vs_points.png", 
-                   x_axis_key='final')
-
-    # (参考) 元の Initial Points ベースの比較も残したい場合
-    # plot_comparison(data, 'psnr', 'Average PSNR', 
-    #                "PSNR vs Initial Points", 
-    #                "plots/comparison_psnr_initial.png", x_axis_key='initial')
+                   OUTPUT_SSIM, x_axis_key='final')
 
 if __name__ == "__main__":
     main()
