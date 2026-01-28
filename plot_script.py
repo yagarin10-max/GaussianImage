@@ -6,40 +6,43 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 
 # ==========================================
-# 設定
+# 設定 (Configuration)
 # ==========================================
 BASE_DIR = "checkpoints/kodak/"
-TARGET_ITERATION = "50000"  # 比較対象とするIteration
+TARGET_ITERATION = "50000"
 
-# 保存ファイル名
 OUTPUT_PSNR = "plots/comparison_psnr.png"
 OUTPUT_SSIM = "plots/comparison_ssim.png"
-OUTPUT_FINAL_POINTS = "plots/comparison_final_points.png" # 追加: 最終点数の推移も見れるように
 OUTPUT_TABLE = "plots/summary_table.txt"
 
 SHOW_ERROR_BARS = True
 MAX_PLOT_POINTS = 40000
 LEGEND_MODE = "outside"
+
+# --- フィルタリング設定のポイント ---
+# 「noclp」や「ema」をキーワードに入れると、それらが付いていない「ベースの手法」が除外されてしまいます。
+# ベースと派生系（noclp, ema）を比較したい場合は、それらに「共通するキーワード」だけを指定してください。
 FILTER_SPECS = [
-    ["Baseline"],          # グループ1: "Baseline" を含むならOK
-    ["kl", "noclp"],      # グループ2: "kl" と "tgt0.7" の両方を含むならOK
-    ["kl", "ema"]
-    # ["l1"]     # 必要ならグループ3を追加...
+    ["Baseline"], 
+    # 例: "kl", "tgt0.4", "init1.0" を持つ手法をすべて表示
+    # これにより、通常版、[No Clamp]版、[EMA]版などがすべてヒットし、自動で色分け・線種分けされます。
+    ["kl", "tgt0.4", "init1.0"] 
 ]
 
+# ==========================================
+# データ処理関数
+# ==========================================
 def format_method_name(prefix, suffix):
     """
-    prefix: _50000_xxxxx より前の部分 (例: maskGI_..._init1.0)
-    suffix: _50000_xxxxx より後の部分 (例: _noclp)
+    prefix: _50000_xxxxx より前の部分
+    suffix: _50000_xxxxx より後の部分
     """
     name = ""
     
-    # --- 1. ベースの手法名を決定 ---
+    # --- 1. ベース名の決定 ---
     if "GaussianImage_Cholesky" in prefix and "wMask" not in prefix:
         name = "Baseline"
     elif "maskGI" in prefix:
-        # パラメータ抽出 (adaなどもあれば対応)
-        # maskGI_Ch_(ada_)?kl... のようにadaがある場合も考慮
         match = re.search(r"maskGI_Ch_(?:ada_)?([^_]+)_tgt([^_]+)_lam([^_]+)_init([^_]+)", prefix)
         if match:
             reg, tgt, lam, init_val = match.group(1), match.group(2), match.group(3), match.group(4)
@@ -47,14 +50,14 @@ def format_method_name(prefix, suffix):
             if "ada" in prefix:
                 name += " [Ada]"
         else:
-            name = prefix # マッチしない場合はそのまま
+            name = prefix
     else:
         name = prefix
 
-    # --- 2. サフィックス (noclp, ema, score) をタグ付け ---
-    # suffixには "_noclp" や "_ema_score" などが入ってくる
-    if "noclp" in suffix or "noclp" in prefix: # prefixに含まれるケースも考慮
-        name += " [No Clip]"
+    # --- 2. サフィックス（タグ）の付与 ---
+    # 名称を [No Clip] -> [No Clamp] に変更
+    if "noclp" in suffix or "noclp" in prefix:
+        name += " [No Clamp]"
     
     if "ema" in suffix:
         name += " [EMA]"
@@ -64,34 +67,24 @@ def format_method_name(prefix, suffix):
 
     return name
 
-
 def parse_npy_logs(base_dir, target_iter):
     data = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-    
-    # 検索パターン: イテレーション番号が含まれるディレクトリ全て
+    # ディレクトリ検索
     search_pattern = os.path.join(base_dir, f"*_{target_iter}_*")
     exp_dirs = glob.glob(search_pattern)
-    
     print(f"Found {len(exp_dirs)} experiment directories matching iter {target_iter}.")
 
     for exp_dir in exp_dirs:
         dir_name = os.path.basename(exp_dir)
         
-        # 正規表現の変更:
-        # ^(.*)            -> Group 1: プレフィックス (手法名 + パラメータ)
-        # _{target_iter}_  -> イテレーション (区切り文字)
-        # (\d+)            -> Group 2: 初期点数
-        # (.*)$            -> Group 3: サフィックス (_noclp, _ema など。無い場合は空文字)
+        # 正規表現: 末尾に任意のサフィックス(group 3)を許容
         match = re.search(rf"^(.*)_{target_iter}_(\d+)(.*)$", dir_name)
-        
-        if not match:
-            continue
+        if not match: continue
             
         prefix = match.group(1)
         init_points = int(match.group(2))
-        suffix = match.group(3) # "_noclp" など、あるいは空文字
+        suffix = match.group(3)
         
-        # 表示名を作成
         display_name = format_method_name(prefix, suffix)
         
         image_dirs = glob.glob(os.path.join(exp_dir, "kodim*"))
@@ -111,71 +104,36 @@ def parse_npy_logs(base_dir, target_iter):
                 except Exception as e:
                     print(f"Error reading {npy_path}: {e}")
     return data
-# ==========================================
-# 表作成・出力関数 (New!)
-# ==========================================
+
 def export_summary_table(data, output_file):
     lines = []
-    
-    # ヘッダー作成
-    # Method | Init | Final(Avg) | Params | Params(K) | PSNR | SSIM
-    header = f"{'Method':<35} | {'Init':<8} | {'Final(Avg)':<10} | {'Params':<10} | {'Params(K)':<9} | {'PSNR':<8} | {'SSIM':<8}"
+    header = f"{'Method':<60} | {'Init':<8} | {'Final(Avg)':<10} | {'Params(K)':<9} | {'PSNR(Avg)':<10} | {'PSNR(Std)':<10}"
     sep = "-" * len(header)
+    lines.append(sep); lines.append(header); lines.append(sep)
     
-    lines.append(sep)
-    lines.append(header)
-    lines.append(sep)
-    
-    # データをリスト化してソート (手法名 -> 初期点数 の順)
-    rows = []
     methods = sorted(data.keys())
-    
     for method in methods:
         init_pts_list = sorted(data[method].keys())
         for init_pt in init_pts_list:
             stats = data[method][init_pt]
-            
-            # 平均計算
             psnr_avg = np.mean(stats['psnr']) if stats['psnr'] else 0
-            ssim_avg = np.mean(stats['ssim']) if stats['ssim'] else 0
+            psnr_std = np.std(stats['psnr']) if stats['psnr'] else 0
             final_pts_avg = np.mean(stats['final_points']) if stats['final_points'] else 0
+            params_k = (final_pts_avg * 8) / 1000.0
             
-            # Params計算 (Gaussian数 * 8)
-            params = final_pts_avg * 8
-            params_k = params / 1000.0
-            
-            rows.append({
-                'method': method,
-                'init': init_pt,
-                'final': final_pts_avg,
-                'params': params,
-                'params_k': params_k,
-                'psnr': psnr_avg,
-                'ssim': ssim_avg
-            })
-
-    # 行を追加
-    for r in rows:
-        line = f"{r['method']:<35} | {r['init']:<8} | {r['final']:<10.1f} | {r['params']:<10.1f} | {r['params_k']:<9.2f} | {r['psnr']:<8.4f} | {r['ssim']:<8.6f}"
-        lines.append(line)
-    
+            rows = f"{method:<60} | {init_pt:<8} | {final_pts_avg:<10.1f} | {params_k:<9.2f} | {psnr_avg:<10.4f} | {psnr_std:<10.4f}"
+            lines.append(rows)
     lines.append(sep)
-    
-    # 結果の結合
     output_text = "\n".join(lines)
+    print("\n" + output_text + "\n")
     
-    # 1. コンソールに出力
-    print("\n" + "="*20 + " SUMMARY TABLE " + "="*20)
-    print(output_text)
-    print("="*55 + "\n")
-    
-    # 2. ファイルに保存
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
     with open(output_file, "w") as f:
         f.write(output_text)
     print(f"Summary table saved to: {output_file}")
 
 # ==========================================
-# プロット関数 (X軸を動的に計算するように修正)
+# プロット関数 (色リンク・スタイル制御)
 # ==========================================
 def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='initial'):
     figsize = (12, 6) if LEGEND_MODE == "outside" else (10, 6)
@@ -184,8 +142,15 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
     methods = sorted(data.keys())
     plotted_count = 0
     
-    # カラーサイクル (Baselineなどは同じ色にしたい場合、ここで工夫も可能ですが
-    # 基本は自動割り当てで、線種で区別するのが分かりやすいです)
+    # ベース名ごとの色管理用辞書
+    base_name_color_map = {}
+    
+    # Matplotlibのデフォルト色サイクルを取得
+    prop_cycle = plt.rcParams['axes.prop_cycle']
+    colors = prop_cycle.by_key()['color']
+    color_idx = 0
+    
+    # マーカーリスト
     markers = ['o', 's', '^', 'D', 'v', '<', '>', 'p', '*', 'h']
     
     for i, method in enumerate(methods):
@@ -193,33 +158,49 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
         if FILTER_SPECS:
             is_match = False
             for group in FILTER_SPECS:
-                # 検索対象を「表示名(method)」にするか「元のディレクトリ名」にするか迷いますが
-                # format_method_nameで "No Clip" 等を入れているので、method検索でOKです。
-                # 小文字にして検索することで "noclp" でも "No Clip" でもヒットしやすくします。
                 method_lower = method.lower()
-                
-                # グループ内のキーワードがすべて含まれているか (AND条件)
-                # キーワード側も小文字化して比較
+                # AND条件: グループ内のすべてのキーワードが含まれているか
                 if all(kw.lower() in method_lower for kw in group):
                     is_match = True
                     break
             if not is_match:
                 continue
 
-        # --- スタイル決定ロジック ---
-        linestyle = '-' # デフォルト: 実線
-        marker = markers[i % len(markers)]
-        alpha = 0.8
+        # --- 色とスタイルの決定ロジック ---
         
-        # [No Clip] が含まれていれば点線にする
-        if "[No Clip]" in method:
-            linestyle = '--' 
-            alpha = 0.6 # 少し薄くする
+        # 1. ベース名を取得 (タグを除去して、純粋な手法名を抽出)
+        # これにより "Mask (...) [No Clamp]" も "Mask (...)" として扱われる
+        base_name = method.split(" [")[0]
+        
+        # 2. ベース名に対して色を割り当て (初めて出たベース名なら新色を付与)
+        if base_name not in base_name_color_map:
+            base_name_color_map[base_name] = colors[color_idx % len(colors)]
+            color_idx += 1
+        
+        color = base_name_color_map[base_name]
+        
+        # 3. マーカーもベース名ごとに統一する (派生版と比較しやすくするため)
+        # ベース名の登場順インデックスを使ってマーカーを決定
+        base_idx = list(base_name_color_map.keys()).index(base_name)
+        marker = markers[base_idx % len(markers)]
+        
+        # 4. 線種 (linestyle) でバリエーションを区別
+        linestyle = '-' # デフォルト: 実線
+        alpha = 0.9
+        
+        if "[No Clamp]" in method:
+            linestyle = '--' # 点線
+            alpha = 0.7      # 少し薄く
             
-        # [EMA] が含まれていれば一点鎖線にする（お好みで）
-        # if "[EMA]" in method:
-        #    linestyle = '-.'
+        if "[EMA]" in method:
+            linestyle = '-.' # 一点鎖線
+            alpha = 0.7
+            
+        if "[Score]" in method:
+             linestyle = ':' # 点線(細)
+             alpha = 0.7
 
+        # --- データ抽出 ---
         init_points_keys = sorted(data[method].keys())
         x_means, y_means, x_stds, y_stds = [], [], [], []
         
@@ -244,6 +225,7 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
             x_means.append(x_mean); y_means.append(y_mean)
             x_stds.append(x_std); y_stds.append(y_std)
         
+        # --- プロット実行 ---
         if x_means:
             combined = sorted(zip(x_means, y_means, x_stds, y_stds), key=lambda x: x[0])
             xs, ys, xerrs, yerrs = zip(*combined)
@@ -254,7 +236,8 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
                     xerr=xerrs if x_axis_key == 'final' else None,
                     yerr=yerrs, 
                     marker=marker, 
-                    linestyle=linestyle, # ここで点線/実線を適用
+                    linestyle=linestyle, 
+                    color=color,    # 色を指定
                     linewidth=1.5,
                     capsize=3,
                     elinewidth=1.0,
@@ -262,7 +245,7 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
                     label=method
                 )
             else:
-                plt.plot(xs, ys, marker=marker, linestyle=linestyle, linewidth=2, label=method)
+                plt.plot(xs, ys, marker=marker, linestyle=linestyle, color=color, linewidth=2, label=method)
             
             plotted_count += 1
 
@@ -288,7 +271,7 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
     plt.close()
 
 def main():
-    print("Parsing NPY files with advanced suffix support...")
+    print("Parsing NPY files with advanced grouping...")
     data = parse_npy_logs(BASE_DIR, TARGET_ITERATION)
     
     if not data:
