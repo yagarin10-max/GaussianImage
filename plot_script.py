@@ -24,12 +24,16 @@ LEGEND_MODE = "outside"
 # ベースと派生系（noclp, ema）を比較したい場合は、それらに「共通するキーワード」だけを指定してください。
 FILTER_SPECS = [
     ["Baseline"], 
-    # 例: "kl", "tgt0.4", "init1.0" を持つ手法をすべて表示
-    # これにより、通常版、[No Clamp]版、[EMA]版などがすべてヒットし、自動で色分け・線種分けされます。
-    ["kl", "tgt0.5", "init1.0"],
-    ["kl", "tgt0.6", "init1.0"], 
-    ["kl", "tgt0.8", "init1.0"], 
-    ["kl", "tgt0.9", "init1.0"], 
+    # 2. KL: tgt0.4, 0.5, 0.6 をそれぞれ比較したい場合
+    # (lam0.05, init1.0 は共通なので指定してもしなくても良いですが、絞るなら指定)
+    ["kl", "tgt0.4", "lam0.05", "init1.0"],
+    ["kl", "tgt0.5", "lam0.05", "init1.0"],
+    ["kl", "tgt0.6", "lam0.05", "init1.0"],
+    
+    # 3. L1 & L1sq: tgtは指定せず、reg, lam, initだけで指定する
+    # これで tgt0.7(通常) と tgt0.6(noclp) の両方がヒットします
+    ["l1",   "lam0.05", "init1.0"],
+    ["l1sq", "lam0.05", "init1.0"]
 
 ]
 
@@ -50,7 +54,10 @@ def format_method_name(prefix, suffix):
         match = re.search(r"maskGI_Ch_(?:ada_)?([^_]+)_tgt([^_]+)_lam([^_]+)_init([^_]+)", prefix)
         if match:
             reg, tgt, lam, init_val = match.group(1), match.group(2), match.group(3), match.group(4)
-            name = f"Mask ({reg}, tgt{tgt}, λ{lam}, init{init_val})"
+            if reg in ["l1", "l1sq"]:
+                name = f"Mask ({reg}, λ{lam}, init{init_val})"
+            else:
+                name = f"Mask ({reg}, tgt{tgt}, λ{lam}, init{init_val})"
             if "ada" in prefix:
                 name += " [Ada]"
         else:
@@ -146,15 +153,11 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
     methods = sorted(data.keys())
     plotted_count = 0
     
-    # ベース名ごとの色管理用辞書
     base_name_color_map = {}
     
-    # Matplotlibのデフォルト色サイクルを取得
     prop_cycle = plt.rcParams['axes.prop_cycle']
     colors = prop_cycle.by_key()['color']
     color_idx = 0
-    
-    # マーカーリスト
     markers = ['o', 's', '^', 'D', 'v', '<', '>', 'p', '*', 'h']
     
     for i, method in enumerate(methods):
@@ -171,38 +174,27 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
                 continue
 
         # --- 色とスタイルの決定ロジック ---
-        
-        # 1. ベース名を取得 (タグを除去して、純粋な手法名を抽出)
-        # これにより "Mask (...) [No Clamp]" も "Mask (...)" として扱われる
         base_name = method.split(" [")[0]
-        
-        # 2. ベース名に対して色を割り当て (初めて出たベース名なら新色を付与)
         if base_name not in base_name_color_map:
             base_name_color_map[base_name] = colors[color_idx % len(colors)]
             color_idx += 1
         
         color = base_name_color_map[base_name]
         
-        # 3. マーカーもベース名ごとに統一する (派生版と比較しやすくするため)
-        # ベース名の登場順インデックスを使ってマーカーを決定
         base_idx = list(base_name_color_map.keys()).index(base_name)
         marker = markers[base_idx % len(markers)]
         
-        # 4. 線種 (linestyle) でバリエーションを区別
         linestyle = '-' # デフォルト: 実線
-        alpha = 0.9
+        line_alpha = 0.6
         
         if "[No Clamp]" in method:
             linestyle = '--' # 点線
-            alpha = 0.7      # 少し薄く
             
         if "[EMA]" in method:
             linestyle = '-.' # 一点鎖線
-            alpha = 0.7
             
         if "[Score]" in method:
              linestyle = ':' # 点線(細)
-             alpha = 0.7
 
         # --- データ抽出 ---
         init_points_keys = sorted(data[method].keys())
@@ -239,17 +231,26 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
                     xs, ys, 
                     xerr=xerrs if x_axis_key == 'final' else None,
                     yerr=yerrs, 
-                    marker=marker, 
-                    linestyle=linestyle, 
-                    color=color,    # 色を指定
-                    linewidth=1.5,
-                    capsize=3,
+                    fmt='none', 
+                    ecolor=color,    # 色を指定
                     elinewidth=1.0,
-                    alpha=alpha,
-                    label=method
+                    capsize=3,
+                    alpha=0.5,
+                )
+                plt.plot(xs, ys, linestyle=linestyle, color=color, linewidth=1.5, alpha=line_alpha, label=method)
+
+                plt.scatter(
+                    xs, ys,
+                    marker=marker,
+                    s=40,
+                    facecolor=color
+                    edgecolor='white',
+                    linewidths=0.8,
+                    alpha=1.0,
+                    zorder=10
                 )
             else:
-                plt.plot(xs, ys, marker=marker, linestyle=linestyle, color=color, linewidth=2, label=method)
+                plt.plot(xs, ys, marker=marker, linestyle=linestyle, color=color, linewidth=2, label=method, markeredgecolor='white', markeredgewidth=0.8)
             
             plotted_count += 1
 
@@ -270,7 +271,7 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
         plt.legend(loc='best', fontsize='small')
     
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
-    plt.savefig(output_file)
+    plt.savefig(output_file, dpi=150)
     print(f"Saved plot: {output_file}")
     plt.close()
 
