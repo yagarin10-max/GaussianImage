@@ -41,6 +41,7 @@ class GaussianImage_Cholesky(nn.Module):
         self.register_buffer('bound', torch.tensor([0.5, 0.5]).view(1, 2))
         self.register_buffer('cholesky_bound', torch.tensor([0.5, 0, 0.5]).view(1, 3))
         self.pruning_mode = None
+        self.no_clamp = kwargs.get("no_clamp", False)
 
         if self.quantize:
             self.xyz_quantizer = FakeQuantizationHalf.apply 
@@ -79,7 +80,8 @@ class GaussianImage_Cholesky(nn.Module):
         # rendered image
         out_img = rasterize_gaussians_sum(self.xys, depths, self.radii, conics, num_tiles_hit,
                 colors, opacities, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=self.background, return_alpha=False)
-        out_img = torch.clamp(out_img, 0, 1) #[H, W, 3]
+        if not self.no_clamp:
+            out_img = torch.clamp(out_img, 0, 1) #[H, W, 3]
         out_img = out_img.view(-1, self.H, self.W, 3).permute(0, 3, 1, 2).contiguous()
         
         # gaussian visualization 

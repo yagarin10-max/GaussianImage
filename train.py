@@ -39,6 +39,9 @@ class SimpleTrainer2d:
         target_sparsity: float = 0.7,
         lambda_reg: float = 0.005,
         init_mask_logit: float = 2.0,
+        use_ema: bool = False,
+        use_score: bool = False,
+        no_clamp: bool = False,
     ):
         self.device = torch.device("cuda:0")
         self.gt_image = image_path_to_tensor(image_path).to(self.device)
@@ -53,13 +56,18 @@ class SimpleTrainer2d:
 
         # self.log_dir = Path(f"./checkpoints/{args.data_name}/{model_name}_{args.iterations}_{num_points}/{self.image_name}")
         if model_name == "GaussianImage_Cholesky_wMask":
-            # Shorten names for folder structure
-            # maskGI_Ch_KL_tgt0.7_lambda0.005_init2.0_50000_70000
-            folder_name = f"maskGI_Ch_{reg_type}_tgt{target_sparsity}_lam{lambda_reg}_init{init_mask_logit}_{args.iterations}_{num_points}"
+            suffix = ""
+            if use_ema: suffix += "_ema"
+            if use_score: suffix += "_score"
+            if no_clamp: suffix += "_noclp"
+
+            folder_name = f"maskGI_Ch_{reg_type}_tgt{target_sparsity}_lam{lambda_reg}_init{init_mask_logit}_{args.iterations}_{num_points}{suffix}"
         else:
-            folder_name = f"{model_name}_{args.iterations}_{num_points}"
+            suffix = ""
+            if no_clamp: suffix += "_noclp"
+            folder_name = f"{model_name}_{args.iterations}_{num_points}{suffix}"
             
-        self.log_dir = Path(f"./checkpoints_wscore/{args.data_name}/{folder_name}/{self.image_name}")
+        self.log_dir = Path(f"./checkpoints/{args.data_name}/{folder_name}/{self.image_name}")
         self.use_wandb = use_wandb
         if self.use_wandb:
             wandb.init(
@@ -78,18 +86,22 @@ class SimpleTrainer2d:
                     "target_sparsity": target_sparsity,
                     "lambda_reg": lambda_reg,
                     "init_mask_logit": init_mask_logit,
+                    "use_ema": use_ema,
+                    "use_score": use_score,
+                    "no_clamp": no_clamp,
                 },
             )
         if model_name == "GaussianImage_Cholesky_wMask":
             from gaussianimage_cholesky_wMask import GaussianImage_Cholesky
             self.gaussian_model = GaussianImage_Cholesky(loss_type="L2", opt_type="adan", num_points=self.num_points, H=self.H, W=self.W, BLOCK_H=BLOCK_H, BLOCK_W=BLOCK_W, 
                 device=self.device, lr=args.lr, quantize=False, start_mask_training=start_mask_training, stop_mask_training=stop_mask_training,
-                reg_type=reg_type, target_sparsity=target_sparsity, lambda_reg=lambda_reg, init_mask_logit=init_mask_logit).to(self.device)
+                reg_type=reg_type, target_sparsity=target_sparsity, lambda_reg=lambda_reg, init_mask_logit=init_mask_logit,
+                use_ema=use_ema, use_score=use_score, no_clamp=no_clamp).to(self.device)
         
         elif model_name == "GaussianImage_Cholesky":
             from gaussianimage_cholesky import GaussianImage_Cholesky
             self.gaussian_model = GaussianImage_Cholesky(loss_type="L2", opt_type="adan", num_points=self.num_points, H=self.H, W=self.W, BLOCK_H=BLOCK_H, BLOCK_W=BLOCK_W, 
-                device=self.device, lr=args.lr, quantize=False).to(self.device)
+                device=self.device, lr=args.lr, quantize=False, no_clamp=no_clamp).to(self.device)
 
         elif model_name == "GaussianImage_RS":
             from gaussianimage_rs import GaussianImage_RS
@@ -298,6 +310,9 @@ def parse_args(argv):
     parser.add_argument("--target_sparsity", type=float, default=0.7, help="Target sparsity for KL divergence regularization")
     parser.add_argument("--lambda_reg", type=float, default=0.005, help="Regularization weight for mask training")
     parser.add_argument("--init_mask_logit", type=float, default=2.0, help="Initial mask logit value")
+    parser.add_argument("--use_ema", action="store_true", help="Use EMA for mask logit")
+    parser.add_argument("--use_score", action="store_true", help="Use score for masking")
+    parser.add_argument("--no_clamp", action="store_true", help="Disable clamping in rendering")
 
     args = parser.parse_args(argv)
     return args
@@ -314,18 +329,23 @@ def main(argv):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
         np.random.seed(args.seed)
-
-    if args.model_name == "GaussianImage_Cholesky_wMask":
-        folder_name = f"maskGI_Ch_{args.reg_type}_tgt{args.target_sparsity}_lam{args.lambda_reg}_init{args.init_mask_logit}_{args.iterations}_{args.num_points}"
-    else:
-        folder_name = f"{args.model_name}_{args.iterations}_{args.num_points}"
     
-    logwriter = LogWriter(Path(f"./checkpoints_wscore/{args.data_name}/{folder_name}"))
+    suffix = ""
+    if args.use_ema: suffix += "_ema"
+    if args.use_score: suffix += "_score"
+    if args.no_clamp: suffix += "_noclp"
+    
+    if args.model_name == "GaussianImage_Cholesky_wMask":
+        folder_name = f"maskGI_Ch_{args.reg_type}_tgt{args.target_sparsity}_lam{args.lambda_reg}_init{args.init_mask_logit}_{args.iterations}_{args.num_points}{suffix}"
+    else:
+        folder_name = f"{args.model_name}_{args.iterations}_{args.num_points}{suffix}"
+    
+    logwriter = LogWriter(Path(f"./checkpoints/{args.data_name}/{folder_name}"))
 
     psnrs, ms_ssims, training_times, eval_times, eval_fpses = [], [], [], [], []
     image_h, image_w = 0, 0
     if args.data_name == "kodak":
-        image_length, start = 24, 0
+        image_length, start = 1, 0
     elif args.data_name == "test":
         image_length, start = 2, 0
     elif args.data_name == "kodak_small":
@@ -343,7 +363,8 @@ def main(argv):
         trainer = SimpleTrainer2d(image_path=image_path, num_points=args.num_points, 
             iterations=args.iterations, model_name=args.model_name, args=args, model_path=args.model_path, 
             start_mask_training=args.start_mask_training, stop_mask_training=args.stop_mask_training, use_wandb=args.use_wandb, wandb_project=args.wandb_project,
-            reg_type=args.reg_type, target_sparsity=args.target_sparsity, lambda_reg=args.lambda_reg, init_mask_logit=args.init_mask_logit)
+            reg_type=args.reg_type, target_sparsity=args.target_sparsity, lambda_reg=args.lambda_reg, init_mask_logit=args.init_mask_logit,
+            use_ema=args.use_ema, use_score=args.use_score, no_clamp=args.no_clamp)
         psnr, ms_ssim, training_time, eval_time, eval_fps = trainer.train()
         psnrs.append(psnr)
         ms_ssims.append(ms_ssim)

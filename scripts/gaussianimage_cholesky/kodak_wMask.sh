@@ -14,11 +14,66 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --data_name kodak \
 --model_name GaussianImage_Cholesky_wMask \
 --num_points $num_points \
---iterations 50000 \
+--iterations 50 \
 --save_imgs \
 --start_mask_training 15000 \
 --stop_mask_training 20000 \
 --reg_type kl \
+--target_sparsity 0.8 \
+--lambda_reg 0.05 \
+--init_mask_logit 1.0 \
+--use_ema \
+--use_score
+done
+
+
+for num_points in 20000 # 768x512
+do
+CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
+--data_name kodak \
+--model_name GaussianImage_Cholesky_wMask \
+--num_points $num_points \
+--iterations 50 \
+--save_imgs \
+--start_mask_training 15000 \
+--stop_mask_training 20000 \
+--reg_type ada_kl \
+--target_sparsity 0.9 \
+--lambda_reg 0.05 \
+--init_mask_logit 1.0 \
+--use_ema \
+--use_score
+done
+
+for num_points in 20000 # 768x512
+do
+CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
+--data_name kodak \
+--model_name GaussianImage_Cholesky_wMask \
+--num_points $num_points \
+--iterations 50 \
+--save_imgs \
+--start_mask_training 15000 \
+--stop_mask_training 20000 \
+--reg_type ada_kl \
+--target_sparsity 0.8 \
+--lambda_reg 0.05 \
+--init_mask_logit 1.0 \
+--use_ema \
+--use_score
+done
+
+for num_points in 20000 # 768x512
+do
+CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
+--data_name kodak \
+--model_name GaussianImage_Cholesky_wMask \
+--num_points $num_points \
+--iterations 50 \
+--save_imgs \
+--start_mask_training 15000 \
+--stop_mask_training 20000 \
+--reg_type ada_kl \
 --target_sparsity 0.9 \
 --lambda_reg 0.05 \
 --init_mask_logit 1.0
@@ -30,11 +85,11 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --data_name kodak \
 --model_name GaussianImage_Cholesky_wMask \
 --num_points $num_points \
---iterations 50000 \
+--iterations 50 \
 --save_imgs \
 --start_mask_training 15000 \
 --stop_mask_training 20000 \
---reg_type kl \
+--reg_type ada_kl \
 --target_sparsity 0.8 \
 --lambda_reg 0.05 \
 --init_mask_logit 1.0
@@ -46,43 +101,11 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --data_name kodak \
 --model_name GaussianImage_Cholesky_wMask \
 --num_points $num_points \
---iterations 50000 \
+--iterations 50 \
 --save_imgs \
 --start_mask_training 15000 \
 --stop_mask_training 20000 \
 --reg_type kl \
---target_sparsity 0.7 \
---lambda_reg 0.05 \
---init_mask_logit 1.0
-done
-
-for num_points in 20000 # 768x512
-do
-CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
---data_name kodak \
---model_name GaussianImage_Cholesky_wMask \
---num_points $num_points \
---iterations 50000 \
---save_imgs \
---start_mask_training 15000 \
---stop_mask_training 20000 \
---reg_type kl \
---target_sparsity 0.6 \
---lambda_reg 0.05 \
---init_mask_logit 1.0
-done
-
-for num_points in 20000 # 768x512
-do
-CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
---data_name kodak \
---model_name GaussianImage_Cholesky_wMask \
---num_points $num_points \
---iterations 50000 \
---save_imgs \
---start_mask_training 15000 \
---stop_mask_training 20000 \
---reg_type ada_kl \
 --target_sparsity 0.9 \
 --lambda_reg 0.05 \
 --init_mask_logit 1.0
@@ -94,11 +117,11 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --data_name kodak \
 --model_name GaussianImage_Cholesky_wMask \
 --num_points $num_points \
---iterations 50000 \
+--iterations 50 \
 --save_imgs \
 --start_mask_training 15000 \
 --stop_mask_training 20000 \
---reg_type ada_kl \
+--reg_type kl \
 --target_sparsity 0.8 \
 --lambda_reg 0.05 \
 --init_mask_logit 1.0

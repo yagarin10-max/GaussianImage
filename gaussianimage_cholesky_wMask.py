@@ -50,6 +50,9 @@ class GaussianImage_Cholesky(nn.Module):
         self.pruning_mode = None
         self.mask_scores_ema = None
         self.ema_decay = 0.99
+        self.use_ema = kwargs.get("use_ema", False)
+        self.use_score = kwargs.get("use_score", False)
+        self.no_clamp = kwargs.get("no_clamp", False)
 
         if self.quantize:
             self.xyz_quantizer = FakeQuantizationHalf.apply 
@@ -152,12 +155,16 @@ class GaussianImage_Cholesky(nn.Module):
         
         colors = self.get_features
         opacities = self._opacity.clone()
-        score = self.calculate_importance_score().detach()
+        if self.use_score:
+            score = self.calculate_importance_score().detach()
+            mask_input = self._mask_logits * score
+        else:
+            mask_input = self._mask_logits
         mask = None
         if pruning_mode =="soft":
-            mask = self._gumbel_sigmoid(self._mask_logits * score, hard=False)
+            mask = self._gumbel_sigmoid(mask_input, hard=False)
         elif pruning_mode =="hard":
-            mask = self._gumbel_sigmoid(self._mask_logits * score, hard=True)
+            mask = self._gumbel_sigmoid(mask_input, hard=True)
         elif pruning_mode =="deterministic":
             mask = (torch.sigmoid(self._mask_logits) > 0.5).float()
 
@@ -167,7 +174,8 @@ class GaussianImage_Cholesky(nn.Module):
         # rendered image
         out_img = rasterize_gaussians_sum(self.xys, depths, self.radii, conics, num_tiles_hit,
                 colors, opacities, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=self.background, return_alpha=False)
-        out_img = torch.clamp(out_img, 0, 1) #[H, W, 3]
+        if not self.no_clamp:
+            out_img = torch.clamp(out_img, 0, 1) #[H, W, 3]
         out_img = out_img.view(-1, self.H, self.W, 3).permute(0, 3, 1, 2).contiguous()
 
         # gaussian visualization
@@ -191,13 +199,14 @@ class GaussianImage_Cholesky(nn.Module):
         elif iterations < self.stop_mask_training:
             self.pruning_mode = "soft"
 
-            with torch.no_grad():
-                current_probs = torch.sigmoid(self._mask_logits)
-                if self.mask_scores_ema is None:
-                    self.mask_scores_ema = current_probs.detach().clone()
-                else:
-                    self.mask_scores_ema = self.ema_decay * self.mask_scores_ema + (1 - self.ema_decay) * current_probs
-        elif iterations == self.stop_mask_training: 
+            if self.use_ema:
+                with torch.no_grad():
+                    current_probs = torch.sigmoid(self._mask_logits)
+                    if self.mask_scores_ema is None:
+                        self.mask_scores_ema = current_probs.detach().clone()
+                    else:
+                        self.mask_scores_ema = self.ema_decay * self.mask_scores_ema + (1 - self.ema_decay) * current_probs
+        elif iterations == self.stop_mask_training and self.use_ema: 
             self.pruning_mode = "deterministic"   
             with torch.no_grad():
                 final_mask = self.mask_scores_ema > 0.5
