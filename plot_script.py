@@ -148,7 +148,7 @@ def export_summary_table(data, output_file):
 # プロット関数 (色リンク・スタイル制御)
 # ==========================================
 def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='initial'):
-    figsize = (12, 6) if LEGEND_MODE == "outside" else (10, 6)
+    figsize = (14, 6) if LEGEND_MODE == "outside" else (10, 6)
     plt.figure(figsize=figsize)
     
     methods = sorted(data.keys())
@@ -194,9 +194,12 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
         
         linestyle = '-' # デフォルト: 実線
         line_alpha = 0.6
+
+        marker_facecolor = color
         
         if "[No Clamp]" in method:
             linestyle = '--' # 点線
+            marker_facecolor = 'none'
             
         if "[EMA]" in method:
             linestyle = '-.' # 一点鎖線
@@ -246,14 +249,15 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
                     alpha=0.5,
                 )
                 plt.plot(xs, ys, linestyle=linestyle, color=color, linewidth=1.5, alpha=line_alpha, label=method)
-
+                
+                marker_edgecolor = color
                 plt.scatter(
                     xs, ys,
                     marker=marker,
                     s=40,
-                    facecolor=color,
-                    edgecolor='white',
-                    linewidths=0.8,
+                    facecolor=marker_facecolor,
+                    edgecolor=marker_edgecolor,
+                    linewidths=1.2,
                     alpha=1.0,
                     zorder=10
                 )
@@ -274,12 +278,12 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
 
     if LEGEND_MODE == "outside":
         plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0, fontsize='small')
-        plt.subplots_adjust(right=0.75) 
+        plt.subplots_adjust(right=0.6) 
     elif LEGEND_MODE == "inside":
         plt.legend(loc='best', fontsize='small')
     
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
-    plt.savefig(output_file, dpi=150)
+    plt.savefig(output_file, dpi=150, bbox_inches='tight')
     print(f"Saved plot: {output_file}")
     plt.close()
 
