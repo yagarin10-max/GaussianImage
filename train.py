@@ -345,7 +345,7 @@ def main(argv):
     psnrs, ms_ssims, training_times, eval_times, eval_fpses = [], [], [], [], []
     image_h, image_w = 0, 0
     if args.data_name == "kodak":
-        image_length, start = 1, 0
+        image_length, start = 24, 0
     elif args.data_name == "test":
         image_length, start = 2, 0
     elif args.data_name == "kodak_small":
