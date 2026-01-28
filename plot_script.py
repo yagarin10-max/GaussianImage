@@ -37,6 +37,7 @@ FILTER_SPECS = [
 
 ]
 
+EXCLUDE_KEYWORDS = ["EMA", "Score", "Ada"]
 # ==========================================
 # データ処理関数
 # ==========================================
@@ -172,6 +173,13 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
                     break
             if not is_match:
                 continue
+        if EXCLUDE_KEYWORDS:
+            is_excluded = False
+            for kw in EXCLUDE_KEYWORDS:
+                if kw.lower() in method.lower():
+                    is_excluded = True
+                    break
+            if is_excluded: continue
 
         # --- 色とスタイルの決定ロジック ---
         base_name = method.split(" [")[0]
