@@ -14,7 +14,7 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --data_name kodak \
 --model_name GaussianImage_Cholesky_wMask \
 --num_points $num_points \
---iterations 50 \
+--iterations 50000 \
 --save_imgs \
 --start_mask_training 15000 \
 --stop_mask_training 20000 \
@@ -33,7 +33,7 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --data_name kodak \
 --model_name GaussianImage_Cholesky_wMask \
 --num_points $num_points \
---iterations 50 \
+--iterations 50000 \
 --save_imgs \
 --start_mask_training 15000 \
 --stop_mask_training 20000 \
@@ -51,7 +51,7 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --data_name kodak \
 --model_name GaussianImage_Cholesky_wMask \
 --num_points $num_points \
---iterations 50 \
+--iterations 50000 \
 --save_imgs \
 --start_mask_training 15000 \
 --stop_mask_training 20000 \
@@ -69,7 +69,7 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --data_name kodak \
 --model_name GaussianImage_Cholesky_wMask \
 --num_points $num_points \
---iterations 50 \
+--iterations 50000 \
 --save_imgs \
 --start_mask_training 15000 \
 --stop_mask_training 20000 \
@@ -85,7 +85,7 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --data_name kodak \
 --model_name GaussianImage_Cholesky_wMask \
 --num_points $num_points \
---iterations 50 \
+--iterations 50000 \
 --save_imgs \
 --start_mask_training 15000 \
 --stop_mask_training 20000 \
@@ -101,7 +101,7 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --data_name kodak \
 --model_name GaussianImage_Cholesky_wMask \
 --num_points $num_points \
---iterations 50 \
+--iterations 50000 \
 --save_imgs \
 --start_mask_training 15000 \
 --stop_mask_training 20000 \
@@ -117,7 +117,7 @@ CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
 --data_name kodak \
 --model_name GaussianImage_Cholesky_wMask \
 --num_points $num_points \
---iterations 50 \
+--iterations 50000 \
 --save_imgs \
 --start_mask_training 15000 \
 --stop_mask_training 20000 \
