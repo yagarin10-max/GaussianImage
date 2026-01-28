@@ -55,9 +55,9 @@ def format_method_name(prefix, suffix):
         if match:
             reg, tgt, lam, init_val = match.group(1), match.group(2), match.group(3), match.group(4)
             if reg in ["l1", "l1sq"]:
-                name = f"Mask ({reg}, λ{lam}, init{init_val})"
+                name = f"Mask ({reg}, lam{lam}, init{init_val})"
             else:
-                name = f"Mask ({reg}, tgt{tgt}, λ{lam}, init{init_val})"
+                name = f"Mask ({reg}, tgt{tgt}, lam{lam}, init{init_val})"
             if "ada" in prefix:
                 name += " [Ada]"
         else:
