@@ -243,7 +243,7 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
                     xs, ys,
                     marker=marker,
                     s=40,
-                    facecolor=color
+                    facecolor=color,
                     edgecolor='white',
                     linewidths=0.8,
                     alpha=1.0,
