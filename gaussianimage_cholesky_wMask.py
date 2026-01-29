@@ -267,7 +267,7 @@ class GaussianImage_Cholesky(nn.Module):
 
             elif self.reg_type == "ada_kl":
                 H, W = self.H, self.W
-                kl_loss = self.calc_adaptive_sparsity_scatter(gt_tiles, mask_probs, self.xys, H, W, tile_size, sparsity_min=self.target_sparsity, sparsity_max=1.0)
+                kl_loss = self.calc_adaptive_sparsity_scatter(gt_tiles, mask_probs, self.xys, H, W, tile_size, sparsity_min=self.target_sparsity, sparsity_max=0.9)
                 loss += self.lambda_reg * kl_loss
 
             # === L1 Regularization ===
@@ -288,10 +288,11 @@ class GaussianImage_Cholesky(nn.Module):
         return loss, psnr
 
     def calc_adaptive_sparsity_scatter(self, gt_tiles, mask_probs, xys, H, W, tile_size, sparsity_min, sparsity_max):
-        tile_complexity = torch.var(gt_tiles, dim=1).squeeze(0) # [num_tiles]
+        tile_complexity = torch.var(gt_tiles, dim=1).squeeze(0).detach() # [num_tiles]
         
         # 正規化して0~1の範囲にする (バッチ内の最大分散で割るなど)
-        tile_complexity_log = torch.log(tile_complexity + 1e-5)
+        tile_complexity = torch.clamp(tile_complexity, min=1e-6)
+        tile_complexity_log = torch.log(tile_complexity)
         c_min = tile_complexity_log.min()
         c_max = torch.quantile(tile_complexity_log, 0.95)
 
@@ -347,6 +348,7 @@ class GaussianImage_Cholesky(nn.Module):
         current_rho[~has_points_mask] = target_rho[~has_points_mask]
 
         current_rho = torch.clamp(current_rho, 1e-5, 1.0 - 1e-5)
+        target_rho = torch.clamp(target_rho, 1e-5, 1.0 - 1e-5)
 
         min_len = min(current_rho.shape[0], target_rho.shape[0])
         current_rho = current_rho[:min_len]
