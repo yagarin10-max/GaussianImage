@@ -150,7 +150,27 @@ class GaussianImage_Cholesky(nn.Module):
         
         return importance_score
 
-    def forward(self, pruning_mode=None): # Puning mode: "None", "hard", "soft"
+    def get_current_temperature(self, iterations):
+        # マスク学習の開始と終了
+        start_iter = self.start_mask_training
+        end_iter = self.stop_mask_training
+        
+        if iterations < start_iter:
+            return 1.0 # 使わないのでなんでもいい
+        
+        # 進行度 (0.0 -> 1.0)
+        progress = (iterations - start_iter) / (end_iter - start_iter)
+        progress = max(0.0, min(1.0, progress))
+        
+        # 指数減衰させる (例: 5.0 -> 0.1)
+        temp_start = 5.0
+        temp_end = 0.1
+        # log spaceでの線形補間（指数的な減少）が一般的によく効きます
+        current_temp = temp_start * (temp_end / temp_start) ** progress
+        
+        return current_temp
+
+    def forward(self, pruning_mode=None, temperature=1.0): # Puning mode: "None", "hard", "soft"
         self.xys, depths, self.radii, conics, num_tiles_hit = project_gaussians_2d(self.get_xyz, self.get_cholesky_elements, self.H, self.W, self.tile_bounds)
         
         colors = self.get_features
@@ -162,9 +182,9 @@ class GaussianImage_Cholesky(nn.Module):
             mask_input = self._mask_logits
         mask = None
         if pruning_mode =="soft":
-            mask = self._gumbel_sigmoid(mask_input, hard=False)
+            mask = self._gumbel_sigmoid(mask_input, temperature=temperature, hard=False)
         elif pruning_mode =="hard":
-            mask = self._gumbel_sigmoid(mask_input, hard=True)
+            mask = self._gumbel_sigmoid(mask_input, temperature=temperature, hard=True)
         elif pruning_mode =="deterministic":
             mask = (torch.sigmoid(self._mask_logits) > 0.5).float()
 
@@ -216,8 +236,8 @@ class GaussianImage_Cholesky(nn.Module):
         else: 
             # pruning_mode = "hard"
             self.pruning_mode = "deterministic"
-
-        render_pkg = self.forward(pruning_mode=self.pruning_mode)
+        # current_temp = self.get_current_temperature(iterations)
+        render_pkg = self.forward(pruning_mode=self.pruning_mode, temperature=0.5) #current_temp)
         image = render_pkg["render"]
         loss = loss_fn(image, gt_image, self.loss_type, lambda_value=0.7)
 
