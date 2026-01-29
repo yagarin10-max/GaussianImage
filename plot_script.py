@@ -38,7 +38,7 @@ FILTER_SPECS = [
 
 ]
 
-EXCLUDE_KEYWORDS = ["No Clamp"]
+EXCLUDE_KEYWORDS = ["No Clamp", "l1sq"]  # 除外したいキーワードのリスト
 # ==========================================
 # データ処理関数
 # ==========================================
@@ -151,7 +151,7 @@ def export_summary_table(data, output_file):
 # プロット関数 (色リンク・スタイル制御)
 # ==========================================
 def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='initial'):
-    figsize = (14, 6) if LEGEND_MODE == "outside" else (10, 6)
+    figsize = (15, 7) if LEGEND_MODE == "outside" else (10, 6)
     plt.figure(figsize=figsize)
     
     methods = sorted(data.keys())
@@ -192,24 +192,32 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
         
         color = base_name_color_map[base_name]
         
-        base_idx = list(base_name_color_map.keys()).index(base_name)
-        marker = markers[base_idx % len(markers)]
-        
-        linestyle = '-' # デフォルト: 実線
-        line_alpha = 0.6
+        linestyle = 'None' # デフォルトは線なし
+        if "Baseline" in method:
+            linestyle = '-' 
+            if "[No Clamp]" in method: linestyle = '--'
 
-        marker_facecolor = color
+        # 3. マーカー形状 (Shape): アルゴリズムの違いを表現
+        # デフォルト: 丸 (Circle)
+        marker = 'o' 
+        
+        has_ema = "[EMA]" in method
+        has_score = "[Score]" in method
+        
+        if has_ema and has_score:
+            marker = '*' # EMA + Score -> 星
+        elif has_ema:
+            marker = 'D' # EMAのみ -> ダイヤ
+        elif has_score:
+            marker = '^' # Scoreのみ -> 三角
+        # なし -> 丸(o)
+
+        # 4. 塗りつぶし (Fill): Clampの違いを表現
+        # デフォルト: 塗りつぶし (Clampあり)
+        marker_facecolor = color 
         
         if "[No Clamp]" in method:
-            linestyle = '--' # 点線
-            marker_facecolor = 'none'
-            
-        if "[EMA]" in method:
-            linestyle = '-.' # 一点鎖線
-            
-        if "[Score]" in method:
-             linestyle = ':' # 点線(細)
-
+            marker_facecolor = 'none' # 白抜き (No Clamp)
         # --- データ抽出 ---
         init_points_keys = sorted(data[method].keys())
         x_means, y_means, x_stds, y_stds = [], [], [], []
@@ -239,34 +247,41 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
         if x_means:
             combined = sorted(zip(x_means, y_means, x_stds, y_stds), key=lambda x: x[0])
             xs, ys, xerrs, yerrs = zip(*combined)
-            
+            ms = 60 if marker == '*' else 50
             if SHOW_ERROR_BARS:
                 plt.errorbar(
                     xs, ys, 
                     xerr=xerrs if x_axis_key == 'final' else None,
                     yerr=yerrs, 
                     fmt='none', 
-                    ecolor=color,    # 色を指定
+                    ecolor=color,
                     elinewidth=1.0,
                     capsize=3,
-                    alpha=0.5,
+                    alpha=0.4,
                 )
-                plt.plot(xs, ys, linestyle=linestyle, color=color, linewidth=1.5, alpha=line_alpha, label=method)
+                if linestyle != 'None':
+                    plt.plot(xs, ys, linestyle=linestyle, color=color, linewidth=1.5, alpha=0.6)
                 
-                marker_edgecolor = color
                 plt.scatter(
                     xs, ys,
                     marker=marker,
-                    s=40,
+                    s=ms,
                     facecolor=marker_facecolor,
-                    edgecolor=marker_edgecolor,
+                    edgecolor=color,
                     linewidths=1.2,
                     alpha=1.0,
-                    zorder=10
+                    zorder=10,
+                    label=method
                 )
             else:
-                plt.plot(xs, ys, marker=marker, linestyle=linestyle, color=color, linewidth=2, label=method, markeredgecolor='white', markeredgewidth=0.8)
-            
+                if linestyle != 'None':
+                    plt.plot(xs, ys, linestyle=linestyle, color=color, linewidth=1.5, alpha=0.6)
+                
+                plt.scatter(
+                    xs, ys, marker=marker, s=ms, 
+                    facecolor=marker_facecolor, edgecolor=color, 
+                    linewidth=1.2, label=method
+                )
             plotted_count += 1
 
     if plotted_count == 0:
