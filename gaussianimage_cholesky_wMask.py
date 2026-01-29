@@ -267,7 +267,7 @@ class GaussianImage_Cholesky(nn.Module):
 
             elif self.reg_type == "ada_kl":
                 H, W = self.H, self.W
-                kl_loss = self.calc_adaptive_sparsity_scatter(gt_tiles, mask_probs, self.xys, H, W, tile_size, sparsity_min=0.1, sparsity_max=self.target_sparsity)
+                kl_loss = self.calc_adaptive_sparsity_scatter(gt_tiles, mask_probs, self.xys, H, W, tile_size, sparsity_min=self.target_sparsity, sparsity_max=1.0)
                 loss += self.lambda_reg * kl_loss
 
             # === L1 Regularization ===
@@ -291,8 +291,12 @@ class GaussianImage_Cholesky(nn.Module):
         tile_complexity = torch.var(gt_tiles, dim=1).squeeze(0) # [num_tiles]
         
         # 正規化して0~1の範囲にする (バッチ内の最大分散で割るなど)
-        max_var = tile_complexity.max()
-        normalized_complexity = tile_complexity / (max_var + 1e-5)
+        tile_complexity_log = torch.log(tile_complexity + 1e-5)
+        c_min = tile_complexity_log.min()
+        c_max = torch.quantile(tile_complexity_log, 0.95)
+
+        normalized_complexity = (tile_complexity_log - c_min) / (c_max - c_min + 1e-5)
+        normalized_complexity = torch.clamp(normalized_complexity, 0.0, 1.0)
         target_rho = sparsity_min + (sparsity_max - sparsity_min) * normalized_complexity
         target_rho = target_rho.detach() # Targetは定数扱い
         # タイルのグリッド数
