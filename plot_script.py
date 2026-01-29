@@ -26,9 +26,10 @@ FILTER_SPECS = [
     ["Baseline"], 
     # 2. KL: tgt0.4, 0.5, 0.6 をそれぞれ比較したい場合
     # (lam0.05, init1.0 は共通なので指定してもしなくても良いですが、絞るなら指定)
-    ["kl", "tgt0.4", "lam0.05", "init1.0"],
-    ["kl", "tgt0.5", "lam0.05", "init1.0"],
-    ["kl", "tgt0.6", "lam0.05", "init1.0"],
+    # ["kl", "tgt0.4", "lam0.05", "init1.0"],
+    # ["kl", "tgt0.5", "lam0.05", "init1.0"],
+    ["kl", "tgt0.8", "lam0.05", "init1.0"],
+    ["kl", "tgt0.9", "lam0.05", "init1.0"],
     
     # 3. L1 & L1sq: tgtは指定せず、reg, lam, initだけで指定する
     # これで tgt0.7(通常) と tgt0.6(noclp) の両方がヒットします
@@ -37,7 +38,7 @@ FILTER_SPECS = [
 
 ]
 
-EXCLUDE_KEYWORDS = ["EMA", "Score", "Ada"]
+EXCLUDE_KEYWORDS = ["No Clamp"]
 # ==========================================
 # データ処理関数
 # ==========================================
@@ -55,12 +56,14 @@ def format_method_name(prefix, suffix):
         match = re.search(r"maskGI_Ch_(?:ada_)?([^_]+)_tgt([^_]+)_lam([^_]+)_init([^_]+)", prefix)
         if match:
             reg, tgt, lam, init_val = match.group(1), match.group(2), match.group(3), match.group(4)
-            if reg in ["l1", "l1sq"]:
-                name = f"Mask ({reg}, lam{lam}, init{init_val})"
-            else:
-                name = f"Mask ({reg}, tgt{tgt}, lam{lam}, init{init_val})"
             if "ada" in prefix:
-                name += " [Ada]"
+                display_reg = f"ada_{reg}"
+            else:
+                display_reg = reg
+            if reg in ["l1", "l1sq"]:
+                name = f"Mask ({display_reg}, lam{lam}, init{init_val})"
+            else:
+                name = f"Mask ({display_reg}, tgt{tgt}, lam{lam}, init{init_val})"
         else:
             name = prefix
     else:
