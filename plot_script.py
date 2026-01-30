@@ -26,10 +26,10 @@ FILTER_SPECS = [
     ["Baseline"], 
     # 2. KL: tgt0.4, 0.5, 0.6 をそれぞれ比較したい場合
     # (lam0.05, init1.0 は共通なので指定してもしなくても良いですが、絞るなら指定)
-    # ["lam0.05", "init1.0"],
+    ["kl", "tgt0.7"],
     # ["kl", "tgt0.5", "lam0.05", "init1.0"],
-    ["kl", "tgt0.8", "lam0.05", "init1.0"],
-    ["kl", "tgt0.9", "lam0.05", "init1.0"],
+    # ["kl", "tgt0.8", "lam0.05", "init1.0"],
+    # ["kl", "tgt0.9", "lam0.05", "init1.0"],
     
     # 3. L1 & L1sq: tgtは指定せず、reg, lam, initだけで指定する
     # これで tgt0.7(通常) と tgt0.6(noclp) の両方がヒットします
@@ -38,7 +38,7 @@ FILTER_SPECS = [
 
 ]
 
-EXCLUDE_KEYWORDS = ["l1sq", "score"]  # 除外したいキーワードのリスト
+EXCLUDE_KEYWORDS = ["l1sq", "score", "ema", "no clamp", "ada_kl"]  # 除外したいキーワードのリスト
 # ==========================================
 # データ処理関数
 # ==========================================
