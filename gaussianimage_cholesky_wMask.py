@@ -53,6 +53,9 @@ class GaussianImage_Cholesky(nn.Module):
         self.use_ema = kwargs.get("use_ema", False)
         self.use_score = kwargs.get("use_score", False)
         self.no_clamp = kwargs.get("no_clamp", False)
+        self.temp_init = kwargs.get("temp_init", 0.5)
+        self.temp_final = kwargs.get("temp_final", 0.5)
+        self.temp_decay_rate = 3e-5
 
         if self.quantize:
             self.xyz_quantizer = FakeQuantizationHalf.apply 
@@ -151,24 +154,19 @@ class GaussianImage_Cholesky(nn.Module):
         return importance_score
 
     def get_current_temperature(self, iterations):
-        # マスク学習の開始と終了
+        
+        if self.temp_init == self.temp_final:
+            return self.temp_init
+        
         start_iter = self.start_mask_training
-        end_iter = self.stop_mask_training
         
         if iterations < start_iter:
-            return 1.0 # 使わないのでなんでもいい
+            return self.temp_init
         
-        # 進行度 (0.0 -> 1.0)
-        progress = (iterations - start_iter) / (end_iter - start_iter)
-        progress = max(0.0, min(1.0, progress))
+        t = iterations - start_iter
+        decayed_temp = self.temp_init * math.exp(-self.temp_decay_rate * t)
         
-        # 指数減衰させる (例: 5.0 -> 0.1)
-        temp_start = 5.0
-        temp_end = 0.1
-        # log spaceでの線形補間（指数的な減少）が一般的によく効きます
-        current_temp = temp_start * (temp_end / temp_start) ** progress
-        
-        return current_temp
+        return max(self.temp_final, decayed_temp)
 
     def forward(self, pruning_mode=None, temperature=1.0): # Puning mode: "None", "hard", "soft"
         self.xys, depths, self.radii, conics, num_tiles_hit = project_gaussians_2d(self.get_xyz, self.get_cholesky_elements, self.H, self.W, self.tile_bounds)
@@ -236,8 +234,8 @@ class GaussianImage_Cholesky(nn.Module):
         else: 
             # pruning_mode = "hard"
             self.pruning_mode = "deterministic"
-        # current_temp = self.get_current_temperature(iterations)
-        render_pkg = self.forward(pruning_mode=self.pruning_mode, temperature=0.5) #current_temp)
+        current_temp = self.get_current_temperature(iterations)
+        render_pkg = self.forward(pruning_mode=self.pruning_mode, temperature=current_temp)
         image = render_pkg["render"]
         loss = loss_fn(image, gt_image, self.loss_type, lambda_value=0.7)
 

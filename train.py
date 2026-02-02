@@ -42,6 +42,8 @@ class SimpleTrainer2d:
         use_ema: bool = False,
         use_score: bool = False,
         no_clamp: bool = False,
+        temp_init: float = 0.5,
+        temp_final: float = 0.5,
     ):
         self.device = torch.device("cuda:0")
         self.gt_image = image_path_to_tensor(image_path).to(self.device)
@@ -60,6 +62,11 @@ class SimpleTrainer2d:
             if use_ema: suffix += "_ema"
             if use_score: suffix += "_score"
             if no_clamp: suffix += "_noclp"
+            if args.temp_init == args.temp_final:
+                temp_str = f"T{args.temp_init}"
+            else:
+                temp_str = f"T{args.temp_init}-{args.temp_final}"
+            suffix += f"_{temp_str}"
 
             folder_name = f"maskGI_Ch_{reg_type}_tgt{target_sparsity}_lam{lambda_reg}_init{init_mask_logit}_{args.iterations}_{num_points}{suffix}"
         else:
@@ -89,6 +96,8 @@ class SimpleTrainer2d:
                     "use_ema": use_ema,
                     "use_score": use_score,
                     "no_clamp": no_clamp,
+                    "temp_init": temp_init,
+                    "temp_final": temp_final,
                 },
             )
         if model_name == "GaussianImage_Cholesky_wMask":
@@ -96,7 +105,7 @@ class SimpleTrainer2d:
             self.gaussian_model = GaussianImage_Cholesky(loss_type="L2", opt_type="adan", num_points=self.num_points, H=self.H, W=self.W, BLOCK_H=BLOCK_H, BLOCK_W=BLOCK_W, 
                 device=self.device, lr=args.lr, quantize=False, start_mask_training=start_mask_training, stop_mask_training=stop_mask_training,
                 reg_type=reg_type, target_sparsity=target_sparsity, lambda_reg=lambda_reg, init_mask_logit=init_mask_logit,
-                use_ema=use_ema, use_score=use_score, no_clamp=no_clamp).to(self.device)
+                use_ema=use_ema, use_score=use_score, no_clamp=no_clamp, temp_init=temp_init, temp_final=temp_final).to(self.device)
         
         elif model_name == "GaussianImage_Cholesky":
             from gaussianimage_cholesky import GaussianImage_Cholesky
@@ -313,6 +322,8 @@ def parse_args(argv):
     parser.add_argument("--use_ema", action="store_true", help="Use EMA for mask logit")
     parser.add_argument("--use_score", action="store_true", help="Use score for masking")
     parser.add_argument("--no_clamp", action="store_true", help="Disable clamping in rendering")
+    parser.add_argument("--temp_init", type=float, default=0.5, help="Initial temperature for Gumbel-Softmax")
+    parser.add_argument("--temp_final", type=float, default=0.5, help="End/min temperature for Gumbel-Softmax")
 
     args = parser.parse_args(argv)
     return args
@@ -364,7 +375,7 @@ def main(argv):
             iterations=args.iterations, model_name=args.model_name, args=args, model_path=args.model_path, 
             start_mask_training=args.start_mask_training, stop_mask_training=args.stop_mask_training, use_wandb=args.use_wandb, wandb_project=args.wandb_project,
             reg_type=args.reg_type, target_sparsity=args.target_sparsity, lambda_reg=args.lambda_reg, init_mask_logit=args.init_mask_logit,
-            use_ema=args.use_ema, use_score=args.use_score, no_clamp=args.no_clamp)
+            use_ema=args.use_ema, use_score=args.use_score, no_clamp=args.no_clamp, temp_init=args.temp_init, temp_final=args.temp_final)
         psnr, ms_ssim, training_time, eval_time, eval_fps = trainer.train()
         psnrs.append(psnr)
         ms_ssims.append(ms_ssim)
