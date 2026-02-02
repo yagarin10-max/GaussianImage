@@ -29,6 +29,7 @@ FILTER_SPECS = [
     ["kl", "tgt0.2"],
     ["kl", "tgt0.3"],
     # ["kl", "tgt0.5", "lam0.05", "init1.0"],
+    ["kl", "tgt0.8"],
     # ["kl", "tgt0.8", "lam0.05", "init1.0"],
     # ["kl", "tgt0.9", "lam0.05", "init1.0"],
     
@@ -39,7 +40,7 @@ FILTER_SPECS = [
 
 ]
 
-EXCLUDE_KEYWORDS = ["l1sq", "score", "ema", "ada_kl"]  # 除外したいキーワードのリスト
+EXCLUDE_KEYWORDS = ["l1sq", "score", "ema", "ada_kl", "no clamp"]  # 除外したいキーワードのリスト
 # ==========================================
 # データ処理関数
 # ==========================================
