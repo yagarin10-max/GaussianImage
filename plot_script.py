@@ -72,7 +72,12 @@ def format_method_name(prefix, suffix):
         name = prefix
 
     # --- 2. サフィックス（タグ）の付与 ---
-    # 名称を [No Clip] -> [No Clamp] に変更
+    temp_match = re.search(r"_T([0-9\.\-]+)", suffix)
+    if temp_match:
+        temp_val = temp_match.group(1)
+        if temp_val != "0.5":
+            name += f" [T={temp_val}]"
+
     if "noclp" in suffix or "noclp" in prefix:
         name += " [No Clamp]"
     
@@ -153,7 +158,7 @@ def export_summary_table(data, output_file):
 # プロット関数 (色リンク・スタイル制御)
 # ==========================================
 def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='initial'):
-    figsize = (15, 7) if LEGEND_MODE == "outside" else (10, 6)
+    figsize = (16, 8) if LEGEND_MODE == "outside" else (10, 6)
     plt.figure(figsize=figsize)
     
     methods = sorted(data.keys())
@@ -220,6 +225,13 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
         
         if "[No Clamp]" in method:
             marker_facecolor = 'none' # 白抜き (No Clamp)
+
+        marker_edgecolor = color
+        marker_edgewidth = 1.2
+
+        if "[T=" in method:
+            marker_edgecolor = 'black'
+            marker_edgewidth = 2.0
         # --- データ抽出 ---
         init_points_keys = sorted(data[method].keys())
         x_means, y_means, x_stds, y_stds = [], [], [], []
@@ -272,8 +284,8 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
                     marker=marker,
                     s=szs,
                     facecolor=marker_facecolor,
-                    edgecolor=color,
-                    linewidths=1.2,
+                    edgecolor=marker_edgecolor,
+                    linewidths=marker_edgewidth,
                     alpha=1.0,
                     zorder=10,
                     label=method
@@ -284,8 +296,8 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
                 
                 plt.scatter(
                     xs, ys, marker=marker, s=szs, 
-                    facecolor=marker_facecolor, edgecolor=color, 
-                    linewidth=1.2, label=method
+                    facecolor=marker_facecolor, edgecolor=marker_edgecolor, 
+                    linewidth=marker_edgewidth, label=method
                 )
             plotted_count += 1
 
