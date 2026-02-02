@@ -222,7 +222,7 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
         # --- データ抽出 ---
         init_points_keys = sorted(data[method].keys())
         x_means, y_means, x_stds, y_stds = [], [], [], []
-        
+        sizes = []
         for init_pt in init_points_keys:
             y_vals = data[method][init_pt][metric_key]
             if not y_vals: continue
@@ -243,12 +243,15 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
 
             x_means.append(x_mean); y_means.append(y_mean)
             x_stds.append(x_std); y_stds.append(y_std)
+
+            size_val = init_pt / 1000
+            sizes.append(size_val)
         
         # --- プロット実行 ---
         if x_means:
-            combined = sorted(zip(x_means, y_means, x_stds, y_stds), key=lambda x: x[0])
-            xs, ys, xerrs, yerrs = zip(*combined)
-            ms = 60 if marker == '*' else 50
+            combined = sorted(zip(x_means, y_means, x_stds, y_stds, sizes), key=lambda x: x[0])
+            xs, ys, xerrs, yerrs, szs = zip(*combined)
+            # ms = 60 if marker == '*' else 50
             if SHOW_ERROR_BARS:
                 plt.errorbar(
                     xs, ys, 
@@ -266,7 +269,7 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
                 plt.scatter(
                     xs, ys,
                     marker=marker,
-                    s=ms,
+                    s=szs,
                     facecolor=marker_facecolor,
                     edgecolor=color,
                     linewidths=1.2,
@@ -279,7 +282,7 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
                     plt.plot(xs, ys, linestyle=linestyle, color=color, linewidth=1.5, alpha=0.6)
                 
                 plt.scatter(
-                    xs, ys, marker=marker, s=ms, 
+                    xs, ys, marker=marker, s=szs, 
                     facecolor=marker_facecolor, edgecolor=color, 
                     linewidth=1.2, label=method
                 )
@@ -294,6 +297,12 @@ def plot_comparison(data, metric_key, y_label, title, output_file, x_axis_key='i
     plt.ylabel(y_label)
     plt.title(title)
     plt.grid(True, linestyle='--', alpha=0.5)
+
+    size_examples = [20000, 50000, 60000]
+    size_handles = []
+    for s_val in size_examples:
+        s_disp = (s_val / 1000)
+        size_handles.append(plt.scatter([], [], s=s_disp, c='gray', alpha=0.5, label=f"Init: {s_val//1000}k"))
 
     if LEGEND_MODE == "outside":
         plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0, fontsize='small')
