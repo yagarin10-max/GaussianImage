@@ -62,10 +62,23 @@ class GaussianImage_Cholesky(nn.Module):
             self.features_dc_quantizer = VectorQuantizer(codebook_dim=3, codebook_size=8, num_quantizers=2, vector_type="vector", kmeans_iters=5) 
             self.cholesky_quantizer = UniformQuantizer(signed=False, bits=6, learned=True, num_channels=3)
 
+        mask_params = []
+        other_params = []
+        
+        for name, param in self.named_parameters():
+            if "_mask_logits" in name:
+                mask_params.append(param)
+            else:
+                other_params.append(param)
+
+        param_groups = [
+            {'params': other_params, 'lr': kwargs["lr"]},
+            {'params': mask_params,  'lr': 0.005}
+        ]
         if kwargs["opt_type"] == "adam":
-            self.optimizer = torch.optim.Adam(self.parameters(), lr=kwargs["lr"])
+            self.optimizer = torch.optim.Adam(param_groups, lr=kwargs["lr"])
         else:
-            self.optimizer = Adan(self.parameters(), lr=kwargs["lr"])
+            self.optimizer = Adan(param_groups, lr=kwargs["lr"])
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=20000, gamma=0.5)
 
     def _init_data(self):
@@ -154,17 +167,36 @@ class GaussianImage_Cholesky(nn.Module):
         return importance_score
 
     def get_current_temperature(self, iterations):
-        
+
         if self.temp_init == self.temp_final:
             return self.temp_init
         
         start_iter = self.start_mask_training
+        stop_iter = self.stop_mask_training
         
+        # まだ始まっていない
         if iterations < start_iter:
             return self.temp_init
+
+        # 終わった
+        if iterations >= stop_iter:
+            return self.temp_final
         
+        # 経過時間 t (0 ~ duration)
         t = iterations - start_iter
-        decayed_temp = self.temp_init * math.exp(-self.temp_decay_rate * t)
+        duration = stop_iter - start_iter
+        
+        # --- 自動計算ロジック ---
+        # T_final = T_init * exp(-r * duration)
+        # log(T_final / T_init) = -r * duration
+        # r = -log(T_final / T_init) / duration
+        
+        if self.temp_init <= self.temp_final: # Annealingしない、または昇温の場合
+            return self.temp_init
+
+        r = -math.log(self.temp_final / self.temp_init) / duration
+        
+        decayed_temp = self.temp_init * math.exp(-r * t)
         
         return max(self.temp_final, decayed_temp)
 

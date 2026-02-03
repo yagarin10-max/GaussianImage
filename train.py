@@ -360,7 +360,7 @@ def main(argv):
     elif args.data_name == "test":
         image_length, start = 2, 0
     elif args.data_name == "kodak_small":
-        image_length, start = 3, 0
+        image_length, start = 1, 0
     elif args.data_name == "DIV2K_valid_LRX2":
         image_length, start = 100, 800
     for i in range(start, start+image_length):
