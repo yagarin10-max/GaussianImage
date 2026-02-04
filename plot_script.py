@@ -40,7 +40,7 @@ FILTER_SPECS = [
 
 ]
 
-EXCLUDE_KEYWORDS = ["l1sq", "score", "ema", "ada_kl", "no clamp"]  # 除外したいキーワードのリスト
+EXCLUDE_KEYWORDS = ["l1sq", "score", "ema", "no clamp"]  # 除外したいキーワードのリスト
 # ==========================================
 # データ処理関数
 # ==========================================
