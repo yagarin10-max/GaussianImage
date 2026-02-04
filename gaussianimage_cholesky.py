@@ -28,9 +28,13 @@ class GaussianImage_Cholesky(nn.Module):
             self._xyz = nn.Parameter(torch.atanh(grid * (1 - 1e-4))) # avoid exactly -1 or 1
         else:
             self._xyz = nn.Parameter(torch.atanh(2 * (torch.rand(self.init_num_points, 2) - 0.5)))
-        
+        huge_scale = 100
         self._cholesky = nn.Parameter(torch.rand(self.init_num_points, 3))
         self.register_buffer('_opacity', torch.ones((self.init_num_points, 1)))
+        def inverse_sigmoid(x):
+            return math.log(x / (1 - x))
+        init_opacity = 0.1
+        self._opacity = nn.Parameter(torch.ones((self.init_num_points, 1)) * inverse_sigmoid(init_opacity))
         self._features_dc = nn.Parameter(torch.rand(self.init_num_points, 3))
         self.random_colors = torch.rand(self.init_num_points, 3) # for gaussian visualization
         self.last_size = (self.H, self.W)
@@ -39,7 +43,7 @@ class GaussianImage_Cholesky(nn.Module):
         self.opacity_activation = torch.sigmoid
         self.rgb_activation = torch.sigmoid
         self.register_buffer('bound', torch.tensor([0.5, 0.5]).view(1, 2))
-        self.register_buffer('cholesky_bound', torch.tensor([0.5, 0, 0.5]).view(1, 3))
+        self.register_buffer('cholesky_bound', torch.tensor([huge_scale, 0, huge_scale]).view(1, 3))
         self.pruning_mode = None
         self.no_clamp = kwargs.get("no_clamp", False)
 
@@ -67,7 +71,7 @@ class GaussianImage_Cholesky(nn.Module):
     
     @property
     def get_opacity(self):
-        return self._opacity
+        return self.opacity_activation(self._opacity)
 
     @property
     def get_cholesky_elements(self):
@@ -76,27 +80,22 @@ class GaussianImage_Cholesky(nn.Module):
     def forward(self, **kwargs):
         self.xys, depths, self.radii, conics, num_tiles_hit = project_gaussians_2d(self.get_xyz, self.get_cholesky_elements, self.H, self.W, self.tile_bounds)
         colors = self.get_features
-        opacities = self._opacity.clone()
+        opacities = self.get_opacity
+        black_bg = torch.zeros_like(self.background)
+        # SMoE
         # rendered image
-        out_img = rasterize_gaussians_sum(self.xys, depths, self.radii, conics, num_tiles_hit,
-                colors, opacities, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=self.background, return_alpha=False)
-        if not self.no_clamp:
-            out_img = torch.clamp(out_img, 0, 1) #[H, W, 3]
-        out_img = out_img.view(-1, self.H, self.W, 3).permute(0, 3, 1, 2).contiguous()
+        numerator_img = rasterize_gaussians_sum(self.xys, depths, self.radii, conics, num_tiles_hit,
+                colors, opacities, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=black_bg, return_alpha=False)
         
-        # gaussian visualization 
-        geom_colors = self.random_colors.to(self.xys.device) * 0.5 # x0.5 to make it visually dark to avoid too much saturation
-        gauss_img = rasterize_gaussians_sum(self.xys, depths, self.radii, conics, num_tiles_hit,
-        geom_colors, opacities, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=self.background, return_alpha=False)
-        gauss_img = torch.clamp(gauss_img, 0, 1) #[H, W, 3]
-        gauss_img = gauss_img.view(-1, self.H, self.W, 3).permute(0, 3, 1, 2).contiguous()
-        # alpha map visualization
-        ones_color = torch.ones_like(colors)
-        alpha_img = rasterize_gaussians_sum(self.xys, depths, self.radii, conics, num_tiles_hit,
-                ones_color, opacities, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=self.background, return_alpha=False)
-        out_alpha = alpha_img.mean(dim=-1, keepdim=True)
-        out_alpha = out_alpha.view(-1, self.H, self.W, 1).permute(0, 3, 1, 2).contiguous()
-        return {"render": out_img, "gauss_render": gauss_img, "alpha_map": out_alpha, "final_opacities": opacities}
+        denominator_img = rasterize_gaussians_sum(self.xys, depths, self.radii, conics, num_tiles_hit,
+                torch.ones_like(colors), opacities, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=black_bg, return_alpha=False)
+        smoe_img = numerator_img / (denominator_img + 1e-5)
+
+        if not self.no_clamp:
+            smoe_img = torch.clamp(smoe_img, 0, 1) #[H, W, 3]
+        smoe_img = smoe_img.view(-1, self.H, self.W, 3).permute(0, 3, 1, 2).contiguous()
+        # numerator_img = numerator_img.view(-1, self.H, self.W, 3).permute(0, 3, 1, 2).contiguous()
+        return {"render": smoe_img, "final_opacities": opacities}
 
     def train_iter(self, gt_image, iterations):
         render_pkg = self.forward()

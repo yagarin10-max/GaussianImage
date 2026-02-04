@@ -74,7 +74,7 @@ class SimpleTrainer2d:
             if no_clamp: suffix += "_noclp"
             folder_name = f"{model_name}_{args.iterations}_{num_points}{suffix}"
             
-        self.log_dir = Path(f"./checkpoints/{args.data_name}/{folder_name}/{self.image_name}")
+        self.log_dir = Path(f"./checkpoints_smoe/{args.data_name}/{folder_name}/{self.image_name}")
         self.use_wandb = use_wandb
         if self.use_wandb:
             wandb.init(
@@ -166,20 +166,6 @@ class SimpleTrainer2d:
                     render_pkg = self.gaussian_model.forward(pruning_mode=self.gaussian_model.pruning_mode)
                     img_tensor = render_pkg["render"].clamp(0, 1)
                     img_np = img_tensor.squeeze(0).permute(1, 2, 0).cpu().numpy()
-                    gauss_img_tensor = render_pkg["gauss_render"].clamp(0, 1)
-                    gauss_img_np = gauss_img_tensor.squeeze(0).permute(1, 2, 0).cpu().numpy()
-                    alpha_img_tensor = render_pkg["alpha_map"]
-                    alpha_img_np = alpha_img_tensor.squeeze().cpu().numpy()
-                    vmax = 6.0
-                    norm_alpha = np.clip(alpha_img_np, 0, vmax) / vmax
-                    colors = [
-                        (0.0 / vmax, "black"),
-                        (1.0 / vmax, "lime"),
-                        (3.0 / vmax, "orange"),
-                        (6.0 / vmax, "darkred"),
-                    ]
-                    custom_cmap = mcolors.LinearSegmentedColormap.from_list("densitiy_fixed_cmap", colors)
-                    alpha_heatmap = custom_cmap(norm_alpha)[:, :, :3]
 
                     points_np = self.gaussian_model.xys.detach().cpu().numpy()
                     final_opacities = render_pkg["final_opacities"].squeeze().cpu().numpy()
@@ -211,8 +197,6 @@ class SimpleTrainer2d:
                     # heatmap_with_points = overlay_points_on_image(alpha_heatmap, valid_points)
                     wandb.log({
                         "render_image": [wandb.Image(img_np, caption=f"Iter {iter}")],
-                        "gauss_image": [wandb.Image(gauss_img_np, caption=f"Iter {iter}")],
-                        "alpha_heatmap": [wandb.Image(alpha_heatmap, caption=f"Alpha(0-3) Iter {iter}")],
                         "render_with_points": [wandb.Image(img_with_points, caption=f"Render+Pts {iter}")],
                         # "gauss_with_points": [wandb.Image(gauss_with_points, caption=f"Gauss+Pts {iter}")],
                         # "heatmap_with_points": [wandb.Image(heatmap_with_points, caption=f"Heatmap+Pts {iter}")],
@@ -314,7 +298,7 @@ def parse_args(argv):
         "--stop_mask_training", type=int, default=50000, help="Iteration to stop soft mask training and switch to hard mask"
     )
     parser.add_argument("--use_wandb", action="store_true", help="Use wandb for logging")
-    parser.add_argument("--wandb_project", type=str, default="GaussianImage", help="Wandb project name")
+    parser.add_argument("--wandb_project", type=str, default="GaussianImage_smoe", help="Wandb project name")
     parser.add_argument("--reg_type", type=str, default="kl", help="Regularization type for mask training: kl, l1, l1sq")
     parser.add_argument("--target_sparsity", type=float, default=0.7, help="Target sparsity for KL divergence regularization")
     parser.add_argument("--lambda_reg", type=float, default=0.005, help="Regularization weight for mask training")
@@ -351,14 +335,14 @@ def main(argv):
     else:
         folder_name = f"{args.model_name}_{args.iterations}_{args.num_points}{suffix}"
     
-    logwriter = LogWriter(Path(f"./checkpoints/{args.data_name}/{folder_name}"))
+    logwriter = LogWriter(Path(f"./checkpoints_smoe/{args.data_name}/{folder_name}"))
 
     psnrs, ms_ssims, training_times, eval_times, eval_fpses = [], [], [], [], []
     image_h, image_w = 0, 0
     if args.data_name == "kodak":
         image_length, start = 24, 0
     elif args.data_name == "test":
-        image_length, start = 2, 0
+        image_length, start = 1, 0
     elif args.data_name == "kodak_small":
         image_length, start = 1, 0
     elif args.data_name == "DIV2K_valid_LRX2":
