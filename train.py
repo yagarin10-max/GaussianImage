@@ -69,6 +69,10 @@ class SimpleTrainer2d:
             suffix += f"_{temp_str}"
 
             folder_name = f"maskGI_Ch_{reg_type}_tgt{target_sparsity}_lam{lambda_reg}_init{init_mask_logit}_{args.iterations}_{num_points}{suffix}"
+        elif model_name == "GaussianImage_Cholesky_smoe":
+            suffix = ""
+            if no_clamp: suffix += "_noclp"
+            folder_name = f"smoeGI_Ch_{args.iterations}_{num_points}{suffix}"
         else:
             suffix = ""
             if no_clamp: suffix += "_noclp"
@@ -106,6 +110,11 @@ class SimpleTrainer2d:
                 device=self.device, lr=args.lr, quantize=False, start_mask_training=start_mask_training, stop_mask_training=stop_mask_training,
                 reg_type=reg_type, target_sparsity=target_sparsity, lambda_reg=lambda_reg, init_mask_logit=init_mask_logit,
                 use_ema=use_ema, use_score=use_score, no_clamp=no_clamp, temp_init=temp_init, temp_final=temp_final).to(self.device)
+        
+        elif model_name == "GaussianImage_Cholesky_smoe":
+            from gaussianimage_cholesky_smoe import GaussianImage_Cholesky
+            self.gaussian_model = GaussianImage_Cholesky(loss_type="L2", opt_type="adan", num_points=self.num_points, H=self.H, W=self.W, BLOCK_H=BLOCK_H, BLOCK_W=BLOCK_W, 
+                device=self.device, lr=args.lr, quantize=False, no_clamp=no_clamp).to(self.device)
         
         elif model_name == "GaussianImage_Cholesky":
             from gaussianimage_cholesky import GaussianImage_Cholesky
@@ -332,6 +341,8 @@ def main(argv):
     
     if args.model_name == "GaussianImage_Cholesky_wMask":
         folder_name = f"maskGI_Ch_{args.reg_type}_tgt{args.target_sparsity}_lam{args.lambda_reg}_init{args.init_mask_logit}_{args.iterations}_{args.num_points}{suffix}"
+    elif args.model_name == "GaussianImage_Cholesky_smoe":
+        folder_name = f"smoeGI_Ch_{args.iterations}_{args.num_points}{suffix}"
     else:
         folder_name = f"{args.model_name}_{args.iterations}_{args.num_points}{suffix}"
     
