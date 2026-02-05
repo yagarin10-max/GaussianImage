@@ -8,8 +8,8 @@ if [ -z "$data_path" ]; then
     exit 1
 fi
 
-for num_points in 2000
+for num_points in 10000
 do
 CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
---data_name kodak_small --model_name GaussianImage_Cholesky_smoe --num_points $num_points --iterations 10000 --save_imgs --use_wandb
+--data_name kodak_small --model_name GaussianImage_Cholesky_smoe --num_points $num_points --iterations 10000 --save_imgs --use_wandb --init_mode segmentation
 done

@@ -8,8 +8,8 @@ if [ -z "$data_path" ]; then
     exit 1
 fi
 
-for num_points in 12000 16000
+for num_points in 2000
 do
 CUDA_VISIBLE_DEVICES=0 python train.py -d $data_path \
---data_name kodak --model_name GaussianImage_Cholesky --num_points $num_points --iterations 50000 --save_imgs
+--data_name kodak_small --model_name GaussianImage_Cholesky --num_points $num_points --iterations 50000 --save_imgs --use_wandb
 done

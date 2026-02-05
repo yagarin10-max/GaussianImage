@@ -7,6 +7,93 @@ import numpy as np
 import math
 from quantize import *
 from optimizer import Adan
+from sklearn.cluster import DBSCAN
+
+def run_dbscan(image_tensor, eps=0.05, min_samples=5, downsample_factor=0.25, spatial_weight=1.0):
+    """
+    image_tensor: [C, H, W] tensor (0-1 float)
+    returns: [H, W] numpy array of segment IDs
+    """
+    # 1. テンソルを (H*W, C) のnumpy配列に変換
+    if image_tensor.dim() == 4:
+        image_tensor = image_tensor.squeeze(0)
+    c, h, w = image_tensor.shape
+    # 色空間でクラスタリングするため、座標情報(x, y)も特徴量に加えるとより空間的にまとまる
+    # ここではシンプルに色だけでDBSCANする例 (必要に応じてxyを加える)
+    # img_flat = image_tensor.permute(1, 2, 0).reshape(-1, c).detach().cpu().numpy()
+    small_image = F.interpolate(image_tensor.unsqueeze(0), scale_factor=downsample_factor, mode='bilinear', align_corners=False).squeeze(0)
+    
+    sc, sh, sw = small_image.shape
+    # フラット化: [sh*sw, C]
+    yy, xx = torch.meshgrid(torch.linspace(0, 1, sh), torch.linspace(0, 1, sw), indexing='ij')
+    
+    # [2, sh, sw]
+    coords = torch.stack([xx, yy], dim=0).to(small_image.device)
+    
+    # 4. 特徴量の結合: Color + Weight * Coord
+    # [C+2, sh, sw] -> (R, G, B, w*x, w*y)
+    features_img = torch.cat([small_image, coords * spatial_weight], dim=0)
+    
+    # フラット化: [sh*sw, C+2]
+    features_flat = features_img.permute(1, 2, 0).reshape(-1, c + 2).detach().cpu().numpy()
+    
+    print(f"DBSCAN running on resized image: {sh}x{sw} ({len(features_flat)} pixels) with spatial features")
+    # 2. DBSCAN実行
+    # eps: 色の距離の閾値 (0-1スケールなので小さめに)
+    # min_samples: クラスタとみなす最小ピクセル数
+    clustering = DBSCAN(eps=eps, min_samples=min_samples, n_jobs=-1).fit(features_flat)
+    labels_small = clustering.labels_.reshape(sh, sw)
+    labels_tensor = torch.from_numpy(labels_small).float().unsqueeze(0).unsqueeze(0) # [1, 1, sh, sw]
+    labels_upsampled = F.interpolate(labels_tensor, size=(h, w), mode='nearest').squeeze().numpy().astype(int) # [H, W]
+    # 3. ラベルを画像サイズに戻す
+    # labels = clustering.labels_.reshape(h, w)
+    return labels_upsampled
+
+def init_points_by_segmentation(image, num_points):
+    if image.dim() == 4:
+        image = image.squeeze(0)
+    print("Running DBSCAN segmentation...")
+    # 1. セグメンテーション実行 (例: 色によるクラスタリングなど)
+    # segments_map: [H, W] のIDマップ
+    eps = 10.0 / 255.0
+    segments_map = run_dbscan(image, eps=eps) 
+    unique_ids = np.unique(segments_map)
+    unique_ids = unique_ids[unique_ids != -1]
+    xyz_list = []
+    c, h, w = image.shape
+    total_pixels = h * w
+    points_allocated = 0
+    
+    for seg_id in unique_ids:
+        # このセグメントのピクセル座標を取得
+        ys, xs = np.where(segments_map == seg_id)
+        area = len(ys)
+        
+        # 面積比に応じてガウシアンを配分
+        n_points = int(num_points * (area / total_pixels))
+        if n_points == 0: continue
+            
+        # セグメント内からランダムに座標をサンプリング
+        indices = np.random.choice(area, n_points, replace=True)
+        
+        # ピクセル座標 (0~W) を Normalize座標 (-1~1) に変換
+        seg_xyz = np.stack([
+            (xs[indices] / (w-1)) * 2 - 1, # x
+            (ys[indices] / (h-1)) * 2 - 1  # y
+        ], axis=1)
+        
+        xyz_list.append(torch.from_numpy(seg_xyz).float())
+        points_allocated += n_points
+        
+    print(f"Segmentation Init: Allocated {points_allocated} points based on {len(unique_ids)} segments.")
+    
+    # もし計算上の誤差で num_points に足りない場合はランダムで埋める
+    if points_allocated < num_points:
+        diff = num_points - points_allocated
+        random_fill = (torch.rand(diff, 2) * 2 - 1).float()
+        xyz_list.append(random_fill)
+        
+    return torch.cat(xyz_list, dim=0)
 
 class GaussianImage_Cholesky(nn.Module):
     def __init__(self, loss_type="L2", **kwargs):
@@ -21,14 +108,28 @@ class GaussianImage_Cholesky(nn.Module):
             1,
         ) # 
         self.device = kwargs["device"]
+        init_mode = kwargs.get("init_mode", "random")
+        target_image = kwargs.get("gt_image", None)
 
-        if self.init_num_points == self.H * self.W:
-            yy, xx = torch.meshgrid(torch.linspace(-1, 1, self.H), torch.linspace(-1, 1, self.W), indexing='ij')
-            grid = torch.stack([xx, yy], dim=-1).reshape(-1, 2)
-            self._xyz = nn.Parameter(torch.atanh(grid * (1 - 1e-4))) # avoid exactly -1 or 1
+        if init_mode == "segmentation" and target_image is not None:
+            # Segmentation Initialization (AS-SMoE)
+            # 画像を渡して初期座標を計算
+            init_xyz = init_points_by_segmentation(target_image, self.init_num_points)
+            # 初期化された座標数が num_points と完全に一致するように調整 (catの結果次第でズレる可能性があるため)
+            if init_xyz.shape[0] > self.init_num_points:
+                init_xyz = init_xyz[:self.init_num_points]
+            # atanhを通してパラメータ化 (無限大回避のため少し縮小)
+            self._xyz = nn.Parameter(torch.atanh(init_xyz.to(self.device) * (1 - 1e-4)))
         else:
-            self._xyz = nn.Parameter(torch.atanh(2 * (torch.rand(self.init_num_points, 2) - 0.5)))
-        self._cholesky = nn.Parameter(torch.zeros(self.init_num_points, 3))
+            # Random Initialization (R-SMoE / GI)
+            # グリッドかランダムか
+            if self.init_num_points == self.H * self.W:
+                yy, xx = torch.meshgrid(torch.linspace(-1, 1, self.H), torch.linspace(-1, 1, self.W), indexing='ij')
+                grid = torch.stack([xx, yy], dim=-1).reshape(-1, 2)
+                self._xyz = nn.Parameter(torch.atanh(grid.to(self.device) * (1 - 1e-4)))
+            else:
+                self._xyz = nn.Parameter(torch.atanh(2 * (torch.rand(self.init_num_points, 2, device=self.device) - 0.5)))
+
         self.register_buffer('_opacity', torch.ones((self.init_num_points, 1)))
         def inverse_sigmoid(x):
             return math.log(x / (1 - x))
@@ -42,7 +143,8 @@ class GaussianImage_Cholesky(nn.Module):
         self.opacity_activation = torch.sigmoid
         self.rgb_activation = torch.sigmoid
         self.register_buffer('bound', torch.tensor([0.5, 0.5]).view(1, 2))
-        self.radius = (max(self.H, self.W) / math.sqrt(self.init_num_points)) * 1.0
+        self._cholesky = nn.Parameter(torch.zeros(self.init_num_points, 3))
+        self.radius = (max(self.H, self.W) / math.sqrt(self.init_num_points)) * 1.2
         self.register_buffer('cholesky_bound', torch.tensor([self.radius, 0, self.radius]).view(1, 3))
         self.pruning_mode = None
         self.no_clamp = kwargs.get("no_clamp", False)
@@ -51,11 +153,37 @@ class GaussianImage_Cholesky(nn.Module):
             self.xyz_quantizer = FakeQuantizationHalf.apply 
             self.features_dc_quantizer = VectorQuantizer(codebook_dim=3, codebook_size=8, num_quantizers=2, vector_type="vector", kmeans_iters=5) 
             self.cholesky_quantizer = UniformQuantizer(signed=False, bits=6, learned=True, num_channels=3)
-
+        
+        self.xyz_lr_init = 0.01
+        self.xyz_lr_final = 0.00001
+        self.other_lr = 0.001
+        
+        # パラメータグループを作成
+        param_groups = [
+            {'params': [self._xyz], 'lr': self.xyz_lr_init, 'name': 'xyz'},
+            {'params': [self._cholesky], 'lr': self.other_lr, 'name': 'cholesky'},
+            {'params': [self._features_dc], 'lr': self.other_lr, 'name': 'color'},
+            {'params': [self._opacity], 'lr': 0.05, 'name': 'opacity'} # Opacityは記述がないため、GSの慣例で高めに設定するか、colorと同じにする
+        ]
         if kwargs["opt_type"] == "adam":
-            self.optimizer = torch.optim.Adam(self.parameters(), lr=kwargs["lr"])
+            self.optimizer = torch.optim.Adam(param_groups, eps=1e-15)
         else:
-            self.optimizer = Adan(self.parameters(), lr=kwargs["lr"])
+            self.optimizer = Adan(param_groups, eps=1e-15)
+        total_steps = kwargs.get("iterations", 10000)
+        gamma = (self.xyz_lr_final / self.xyz_lr_init) ** (1.0 / total_steps)
+
+        def lr_lambda(step):
+            # stepがtotal_stepsを超えたら学習率を変えない（あるいは終了）
+            if step >= total_steps:
+                return (self.xyz_lr_final / self.xyz_lr_init)
+            return gamma ** step
+
+        # グループごとに適用する関数を変える
+        # xyzグループ(index 0)には lr_lambda を、それ以外には 1.0 (変化なし) を適用
+        self.scheduler = torch.optim.lr_scheduler.LambdaLR(
+            self.optimizer, 
+            lr_lambda=[lr_lambda, lambda s: 1.0, lambda s: 1.0, lambda s: 1.0]
+        )
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=20000, gamma=0.5)
 
     def _init_data(self):

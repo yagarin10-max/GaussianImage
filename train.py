@@ -44,10 +44,16 @@ class SimpleTrainer2d:
         no_clamp: bool = False,
         temp_init: float = 0.5,
         temp_final: float = 0.5,
+        init_mode: str = "random",
     ):
         self.device = torch.device("cuda:0")
         self.gt_image = image_path_to_tensor(image_path).to(self.device)
-
+        NOISE_VARIANCE = 0.01
+        sigma = math.sqrt(NOISE_VARIANCE)
+        # ノイズ付加 (Training用)
+        noise = torch.randn_like(self.gt_image) * sigma
+        noisy_image = self.gt_image + noise
+        noisy_image = torch.clamp(noisy_image, 0, 1)
         self.num_points = num_points
         image_path = Path(image_path)
         self.image_name = image_path.stem
@@ -102,6 +108,7 @@ class SimpleTrainer2d:
                     "no_clamp": no_clamp,
                     "temp_init": temp_init,
                     "temp_final": temp_final,
+                    "init_mode": init_mode,
                 },
             )
         if model_name == "GaussianImage_Cholesky_wMask":
@@ -113,8 +120,8 @@ class SimpleTrainer2d:
         
         elif model_name == "GaussianImage_Cholesky_smoe":
             from gaussianimage_cholesky_smoe import GaussianImage_Cholesky
-            self.gaussian_model = GaussianImage_Cholesky(loss_type="L2", opt_type="adan", num_points=self.num_points, H=self.H, W=self.W, BLOCK_H=BLOCK_H, BLOCK_W=BLOCK_W, 
-                device=self.device, lr=args.lr, quantize=False, no_clamp=no_clamp).to(self.device)
+            self.gaussian_model = GaussianImage_Cholesky(loss_type="L2", opt_type="adam", num_points=self.num_points, H=self.H, W=self.W, BLOCK_H=BLOCK_H, BLOCK_W=BLOCK_W, 
+                device=self.device, lr=args.lr, quantize=False, no_clamp=no_clamp,init_mode=init_mode,gt_image=self.gt_image).to(self.device)
         
         elif model_name == "GaussianImage_Cholesky":
             from gaussianimage_cholesky import GaussianImage_Cholesky
@@ -317,6 +324,7 @@ def parse_args(argv):
     parser.add_argument("--no_clamp", action="store_true", help="Disable clamping in rendering")
     parser.add_argument("--temp_init", type=float, default=0.5, help="Initial temperature for Gumbel-Softmax")
     parser.add_argument("--temp_final", type=float, default=0.5, help="End/min temperature for Gumbel-Softmax")
+    parser.add_argument("--init_mode", type=str, default="random", help="Initialization mode for Gaussian parameters: random or segmentation")
 
     args = parser.parse_args(argv)
     return args
@@ -370,7 +378,8 @@ def main(argv):
             iterations=args.iterations, model_name=args.model_name, args=args, model_path=args.model_path, 
             start_mask_training=args.start_mask_training, stop_mask_training=args.stop_mask_training, use_wandb=args.use_wandb, wandb_project=args.wandb_project,
             reg_type=args.reg_type, target_sparsity=args.target_sparsity, lambda_reg=args.lambda_reg, init_mask_logit=args.init_mask_logit,
-            use_ema=args.use_ema, use_score=args.use_score, no_clamp=args.no_clamp, temp_init=args.temp_init, temp_final=args.temp_final)
+            use_ema=args.use_ema, use_score=args.use_score, no_clamp=args.no_clamp, temp_init=args.temp_init, temp_final=args.temp_final, 
+            init_mode=args.init_mode)
         psnr, ms_ssim, training_time, eval_time, eval_fps = trainer.train()
         psnrs.append(psnr)
         ms_ssims.append(ms_ssim)
