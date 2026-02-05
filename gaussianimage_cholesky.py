@@ -28,7 +28,6 @@ class GaussianImage_Cholesky(nn.Module):
             self._xyz = nn.Parameter(torch.atanh(grid * (1 - 1e-4))) # avoid exactly -1 or 1
         else:
             self._xyz = nn.Parameter(torch.atanh(2 * (torch.rand(self.init_num_points, 2) - 0.5)))
-        huge_scale = 100
         self._cholesky = nn.Parameter(torch.rand(self.init_num_points, 3))
         self.register_buffer('_opacity', torch.ones((self.init_num_points, 1)))
         def inverse_sigmoid(x):
@@ -43,7 +42,7 @@ class GaussianImage_Cholesky(nn.Module):
         self.opacity_activation = torch.sigmoid
         self.rgb_activation = torch.sigmoid
         self.register_buffer('bound', torch.tensor([0.5, 0.5]).view(1, 2))
-        self.register_buffer('cholesky_bound', torch.tensor([huge_scale, 0, huge_scale]).view(1, 3))
+        self.register_buffer('cholesky_bound', torch.tensor([0.5, 0, 0.5]).view(1, 3))
         self.pruning_mode = None
         self.no_clamp = kwargs.get("no_clamp", False)
 
@@ -86,16 +85,11 @@ class GaussianImage_Cholesky(nn.Module):
         # rendered image
         numerator_img = rasterize_gaussians_sum(self.xys, depths, self.radii, conics, num_tiles_hit,
                 colors, opacities, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=black_bg, return_alpha=False)
-        
-        denominator_img = rasterize_gaussians_sum(self.xys, depths, self.radii, conics, num_tiles_hit,
-                torch.ones_like(colors), opacities, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=black_bg, return_alpha=False)
-        smoe_img = numerator_img / (denominator_img + 1e-5)
 
         if not self.no_clamp:
-            smoe_img = torch.clamp(smoe_img, 0, 1) #[H, W, 3]
-        smoe_img = smoe_img.view(-1, self.H, self.W, 3).permute(0, 3, 1, 2).contiguous()
-        # numerator_img = numerator_img.view(-1, self.H, self.W, 3).permute(0, 3, 1, 2).contiguous()
-        return {"render": smoe_img, "final_opacities": opacities}
+            numerator_img = torch.clamp(numerator_img, 0, 1) #[H, W, 3]
+        numerator_img = numerator_img.view(-1, self.H, self.W, 3).permute(0, 3, 1, 2).contiguous()
+        return {"render": numerator_img, "final_opacities": opacities}
 
     def train_iter(self, gt_image, iterations):
         render_pkg = self.forward()
