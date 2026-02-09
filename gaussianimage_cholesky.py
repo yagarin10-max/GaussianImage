@@ -85,11 +85,16 @@ class GaussianImage_Cholesky(nn.Module):
         # rendered image
         numerator_img = rasterize_gaussians_sum(self.xys, depths, self.radii, conics, num_tiles_hit,
                 colors, opacities, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=black_bg, return_alpha=False)
-
+        # gaussian visualization 
+        geom_colors = self.random_colors.to(self.xys.device)
+        gauss_img = rasterize_gaussians_sum(self.xys, depths, self.radii, conics, num_tiles_hit,
+        geom_colors, opacities, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=self.background, return_alpha=False)
+        gauss_img = torch.clamp(gauss_img, 0, 1) #[H, W, 3]
+        gauss_img = gauss_img.view(-1, self.H, self.W, 3).permute(0, 3, 1, 2).contiguous()
         if not self.no_clamp:
             numerator_img = torch.clamp(numerator_img, 0, 1) #[H, W, 3]
         numerator_img = numerator_img.view(-1, self.H, self.W, 3).permute(0, 3, 1, 2).contiguous()
-        return {"render": numerator_img, "final_opacities": opacities}
+        return {"render": numerator_img, "gauss_render": gauss_img, "final_opacities": opacities}
 
     def train_iter(self, gt_image, iterations):
         render_pkg = self.forward()

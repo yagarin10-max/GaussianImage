@@ -182,7 +182,8 @@ class SimpleTrainer2d:
                     render_pkg = self.gaussian_model.forward(pruning_mode=self.gaussian_model.pruning_mode)
                     img_tensor = render_pkg["render"].clamp(0, 1)
                     img_np = img_tensor.squeeze(0).permute(1, 2, 0).cpu().numpy()
-
+                    gauss_img_tensor = render_pkg["gauss_render"].clamp(0, 1)
+                    gauss_img_np = gauss_img_tensor.squeeze(0).permute(1, 2, 0).cpu().numpy()
                     points_np = self.gaussian_model.xys.detach().cpu().numpy()
                     final_opacities = render_pkg["final_opacities"].squeeze().cpu().numpy()
                     valid_indices = final_opacities > 0.001
@@ -209,12 +210,12 @@ class SimpleTrainer2d:
 
                     # --- 3. 3つの画像すべてに適用 ---
                     img_with_points = overlay_points_on_image(img_np, valid_points)
-                    # gauss_with_points = overlay_points_on_image(gauss_img_np, valid_points)
+                    gauss_with_points = overlay_points_on_image(gauss_img_np, valid_points)
                     # heatmap_with_points = overlay_points_on_image(alpha_heatmap, valid_points)
                     wandb.log({
                         "render_image": [wandb.Image(img_np, caption=f"Iter {iter}")],
                         "render_with_points": [wandb.Image(img_with_points, caption=f"Render+Pts {iter}")],
-                        # "gauss_with_points": [wandb.Image(gauss_with_points, caption=f"Gauss+Pts {iter}")],
+                        "gauss_with_points": [wandb.Image(gauss_with_points, caption=f"Gauss+Pts {iter}")],
                         # "heatmap_with_points": [wandb.Image(heatmap_with_points, caption=f"Heatmap+Pts {iter}")],
                         "iter": iter,
                     }
