@@ -21,8 +21,45 @@ class GaussianImage_Cholesky(nn.Module):
             1,
         ) # 
         self.device = kwargs["device"]
+        init_mask = kwargs.get("init_mask", None)
+        match_mask_points = kwargs.get("match_mask_points", False)
+        if init_mask is not None:
+            print("Initializing Gaussians from Binary Mask...")
+            # マスクが有効な座標 (y, x) を取得 (値が0.5以上のピクセル)
+            # maskは [1, 1, H, W] なので squeeze して [H, W] にする
+            valid_indices = torch.nonzero(init_mask.squeeze() > 0.5, as_tuple=False) # [N, 2] (y, x)
+            num_valid = valid_indices.shape[0]
+            
+            if num_valid == 0:
+                print("Warning: Mask is empty. Falling back to random initialization.")
+                self._xyz = nn.Parameter(torch.atanh(2 * (torch.rand(self.init_num_points, 2) - 0.5)))
+            else:
+                if match_mask_points:
+                    print(f"Matching exact mask points: {num_valid}")
+                    self.init_num_points = num_valid
+                    selected_indices = valid_indices
+                # 指定された点数分だけサンプリング (足りない場合は重複許容、多い場合はランダム選択)
+                else:
+                    if num_valid >= self.init_num_points:
+                        choice_indices = torch.randperm(num_valid)[:self.init_num_points]
+                    else:
+                        # 点数が足りない場合はランダムに重複して埋める
+                        choice_indices = torch.randint(0, num_valid, (self.init_num_points,))
+                    selected_indices = valid_indices[choice_indices] # (y, x)
 
-        if self.init_num_points == self.H * self.W:
+                # 座標を [-1, 1] に正規化する
+                # y座標の正規化: (y / H) * 2 - 1
+                # x座標の正規化: (x / W) * 2 - 1
+                y_norm = (selected_indices[:, 0].float() / (self.H - 1)) * 2 - 1
+                x_norm = (selected_indices[:, 1].float() / (self.W - 1)) * 2 - 1
+                
+                # _xyz は (x, y) の順序で格納されているため stack 順に注意
+                # また、atanh空間に持っていくため、完全に -1, 1 になると無限大になるので clip する
+                grid = torch.stack([x_norm, y_norm], dim=-1)
+                grid = torch.clamp(grid, -0.9999, 0.9999) # 数値安定性のため
+                
+                self._xyz = nn.Parameter(torch.atanh(grid))
+        elif self.init_num_points == self.H * self.W:
             yy, xx = torch.meshgrid(torch.linspace(-1, 1, self.H), torch.linspace(-1, 1, self.W), indexing='ij')
             grid = torch.stack([xx, yy], dim=-1).reshape(-1, 2)
             self._xyz = nn.Parameter(torch.atanh(grid * (1 - 1e-4))) # avoid exactly -1 or 1

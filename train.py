@@ -48,6 +48,22 @@ class SimpleTrainer2d:
         self.device = torch.device("cuda:0")
         self.gt_image = image_path_to_tensor(image_path).to(self.device)
 
+        self.init_mask = None
+        if args.mask_dataset is not None:
+            mask_dir = Path(args.mask_dataset)            
+            mask_path = mask_dir / f"{image_path.stem}_binary.png"
+
+            if mask_path.exists():
+                print(f"Loading mask from: {mask_path}")
+                mask_tensor = image_path_to_tensor(mask_path).to(self.device)
+                if mask_tensor.shape[1] > 1:
+                    self.init_mask = mask_tensor.mean(dim=1, keepdim=True)
+                else:
+                    self.init_mask = mask_tensor
+            else:
+                print(f"Warning: Mask file not found for {image_path.name}. Checked: {mask_path}")
+        # -------------------------------
+
         self.num_points = num_points
         image_path = Path(image_path)
         self.image_name = image_path.stem
@@ -110,7 +126,7 @@ class SimpleTrainer2d:
         elif model_name == "GaussianImage_Cholesky":
             from gaussianimage_cholesky import GaussianImage_Cholesky
             self.gaussian_model = GaussianImage_Cholesky(loss_type="L2", opt_type="adan", num_points=self.num_points, H=self.H, W=self.W, BLOCK_H=BLOCK_H, BLOCK_W=BLOCK_W, 
-                device=self.device, lr=args.lr, quantize=False, no_clamp=no_clamp).to(self.device)
+                device=self.device, lr=args.lr, quantize=False, no_clamp=no_clamp, init_mask=self.init_mask, match_mask_points=args.match_mask_points).to(self.device)
 
         elif model_name == "GaussianImage_RS":
             from gaussianimage_rs import GaussianImage_RS
@@ -123,6 +139,11 @@ class SimpleTrainer2d:
                 device=self.device, sh_degree=args.sh_degree, lr=args.lr).to(self.device)
 
         self.logwriter = LogWriter(self.log_dir)
+
+        if args.match_mask_points and self.init_mask is not None:
+                new_points = self.gaussian_model._xyz.shape[0]
+                print(f"Num points updated from {self.num_points} to {new_points} based on mask.")
+                self.num_points = new_points
 
         if model_path is not None:
             print(f"loading model path:{model_path}")
@@ -324,6 +345,8 @@ def parse_args(argv):
     parser.add_argument("--no_clamp", action="store_true", help="Disable clamping in rendering")
     parser.add_argument("--temp_init", type=float, default=0.5, help="Initial temperature for Gumbel-Softmax")
     parser.add_argument("--temp_final", type=float, default=0.5, help="End/min temperature for Gumbel-Softmax")
+    parser.add_argument("--mask_dataset", type=str, default=None, help="Path to the binary mask dataset folder")
+    parser.add_argument("--match_mask_points", action="store_true", help="If True, ignore --num_points and use the exact number of valid points in binary mask.")
 
     args = parser.parse_args(argv)
     return args
@@ -355,22 +378,32 @@ def main(argv):
 
     psnrs, ms_ssims, training_times, eval_times, eval_fpses = [], [], [], [], []
     image_h, image_w = 0, 0
+    target_images = []
     if args.data_name == "kodak":
-        image_length, start = 24, 0
+        target_images = [Path(args.dataset) / f'kodim{i+1:02}.png' for i in range(24)]
     elif args.data_name == "test":
-        image_length, start = 2, 0
+        target_images = [Path(args.dataset) / f'test{i+1:02}.png' for i in range(2)]
     elif args.data_name == "kodak_small":
-        image_length, start = 1, 0
+        target_images = [Path(args.dataset) / f'kodim{i+1:02}.png' for i in range(1)]    
     elif args.data_name == "DIV2K_valid_LRX2":
-        image_length, start = 100, 800
-    for i in range(start, start+image_length):
-        if (args.data_name == "kodak") or (args.data_name == "kodak_small"):
-            image_path = Path(args.dataset) / f'kodim{i+1:02}.png'
-        elif args.data_name == "DIV2K_valid_LRX2":
-            image_path = Path(args.dataset) /  f'{i+1:04}x2.png'
-        elif args.data_name == "test":
-            image_path = Path(args.dataset) /  f'test{i+1:02}.png'
+        target_images = [Path(args.dataset) / f'{i+1:04}x2.png' for i in range(800, 900)] # rangeは適宜
+    elif args.data_name == "binary":
+        dataset_path = Path(args.dataset)
+        valid_extensions = {".jpg", ".jpeg", ".png", ".bmp"}
+        target_images = sorted([
+            p for p in dataset_path.iterdir() 
+            if p.suffix.lower() in valid_extensions
+        ])
+        print(f"Found {len(target_images)} images in {args.dataset}")
 
+    target_images = target_images[0:1] ### for debug
+
+    image_length = len(target_images)
+    if image_length == 0:
+        print("Error: No images found!")
+        return
+    for image_path in target_images:
+        print(f"Processing image: {image_path.name}")
         trainer = SimpleTrainer2d(image_path=image_path, num_points=args.num_points, 
             iterations=args.iterations, model_name=args.model_name, args=args, model_path=args.model_path, 
             start_mask_training=args.start_mask_training, stop_mask_training=args.stop_mask_training, use_wandb=args.use_wandb, wandb_project=args.wandb_project,
